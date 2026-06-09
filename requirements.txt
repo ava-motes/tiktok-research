@@ -1,2 +1,8 @@
 requests
 python-dotenv
+pyyaml
+openai
+yt-dlp
+webrtcvad
+imageio-ffmpeg
+# faster-whisper  # Optional: uncomment for local transcription
