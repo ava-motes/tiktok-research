@@ -258,6 +258,7 @@ Before leave, Lahari should send Ava:
 - [ ] Note that server `.env` and `~/keys/tiktok-enrichment-worker.json` already exist (or secure copy)  
 - [ ] This file: `docs/AVA_ONBOARDING.md`  
 - [ ] Architecture: `docs/PIPELINE_ARCHITECTURE.md`  
+- [ ] Release notes: `RELEASE.md` (v5.0 milestone)  
 - [ ] Production status: `data/production_checklist.json`
 
 ---

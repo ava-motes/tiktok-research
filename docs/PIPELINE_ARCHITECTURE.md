@@ -3,7 +3,8 @@
 Production design for Moody / CFME media engagement research.  
 **Do not process TikTok media on laptops** — enrichment runs on `comm-cme-p01`.
 
-**Pipeline version: `enrichment-v5.0`** (frozen core; research features only after this).
+**Pipeline version: `enrichment-v5.0`** (frozen core; research features only after this).  
+**Canonical release notes:** [`RELEASE.md`](../RELEASE.md) (Git tag `v5.0`).
 
 ## Flow
 
