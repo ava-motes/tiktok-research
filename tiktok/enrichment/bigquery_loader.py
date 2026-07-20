@@ -31,7 +31,53 @@ DEFAULT_BQ_DATASET = "tiktok_research"
 
 ENRICHED_TABLE = "tiktok_video_enriched"
 PIPELINE_LOGS_TABLE = "tiktok_pipeline_logs"
-PIPELINE_VERSION = "enrichment-v4.1"
+PIPELINE_VERSION = "enrichment-v5.0"
+
+# Logical column groups (same physical table; aids research vs ops clarity)
+RESEARCH_COLUMNS = (
+    "video_id",
+    "video_url",
+    "creator_username",
+    "creator_display_name",
+    "creator_bio",
+    "creator_verified",
+    "creator_followers",
+    "creator_following",
+    "creator_total_likes",
+    "creator_video_count",
+    "posted_at",
+    "caption",
+    "hashtags",
+    "like_count",
+    "comment_count",
+    "share_count",
+    "favorite_count",
+    "video_duration_seconds",
+    "voice_to_text",
+    "sticker_text",
+    "comments_json",
+    "whisper_transcript",
+    "ocr_text",
+    "emoji_characters",
+    "emoji_descriptions",
+    "emoji_category",
+)
+OPERATIONAL_COLUMNS = (
+    "whisper_status",
+    "whisper_latency_seconds",
+    "raw_ocr_text",
+    "cleaned_ocr_text",
+    "ocr_quality_score",
+    "ocr_character_count",
+    "ocr_unique_text_ratio",
+    "ocr_source_count",
+    "emoji_source",
+    "enrichment_status",
+    "enrichment_quality_score",
+    "failure_reason",
+    "enrichment_date",
+    "pipeline_version",
+)
 
 # Deprecated — never write these from enrichment
 LEGACY_BQ_TABLES = (
@@ -378,8 +424,9 @@ def build_enriched_row(conn, video_id: str) -> Optional[Dict[str, Any]]:
     emoji_agg = aggregate_emoji_fields(em)
 
     status = (t.get("status") or "").lower()
-    audio_available = status == "ok"
-    transcript = (t.get("transcript") or "") if audio_available else ""
+    # Prefer actual transcript text over SQLite status flags
+    transcript = (t.get("transcript") or "").strip()
+    audio_available = bool(transcript)
     # Prefer cleaned OCR for analytics; keep full raw separately
     cleaned_ocr = (ocr_agg.get("cleaned_ocr_text") or ocr_agg.get("ocr_text") or "").strip()
     raw_ocr = (ocr_agg.get("raw_ocr_text") or "").strip()
@@ -393,7 +440,12 @@ def build_enriched_row(conn, video_id: str) -> Optional[Dict[str, Any]]:
     # Ignore stale OCR errors once meaningful cleaned OCR is present
     if has_meaningful_ocr:
         ocr_error = None
-    tr_error = t.get("error") or _latest_worker_error(conn, video_id, "transcription")
+    tr_error = (t.get("error") or "").strip() or _latest_worker_error(
+        conn, video_id, "transcription"
+    )
+    # Status claimed ok but empty transcript → treat as Whisper failure
+    if status == "ok" and not transcript:
+        tr_error = tr_error or "empty_transcript"
     whisper_latency = _latest_worker_latency(conn, video_id, "transcription")
     vtt = (v.get("voice_to_text") or "").strip()
     sticker = (v.get("sticker_overlay_text") or "").strip()
@@ -401,7 +453,7 @@ def build_enriched_row(conn, video_id: str) -> Optional[Dict[str, Any]]:
         audio_available=audio_available,
         transcript_chars=len(transcript),
         ocr_frames=frames_text if has_meaningful_ocr else 0,
-        transcript_error=tr_error if status != "ok" else None,
+        transcript_error=tr_error,
         ocr_error=ocr_error,
     )
     quality = enrichment_quality_score(
@@ -415,7 +467,7 @@ def build_enriched_row(conn, video_id: str) -> Optional[Dict[str, Any]]:
     # Speech-only / no-overlay videos are OK when Whisper (or VTT) succeeded
     # and there is no active worker failure. Missing emoji must not force partial.
     if enrich_status == "partial" and not failure_reason and (transcript or vtt):
-        if not ocr_error and (status == "ok" or bool(vtt)):
+        if not ocr_error and (bool(transcript) or bool(vtt)):
             enrich_status = "ok"
     if enrich_status == "ok" and not transcript and not vtt and not has_meaningful_ocr:
         enrich_status = "partial"
@@ -425,10 +477,11 @@ def build_enriched_row(conn, video_id: str) -> Optional[Dict[str, Any]]:
         str(v.get("create_time") or "") if v.get("create_time") else ""
     )
     now = datetime.now(timezone.utc)
+    # whisper_status must match reality: never "ok" with an empty transcript
     if transcript:
         whisper_status = "ok"
-    elif status == "error":
-        whisper_status = "error"
+    elif status in ("error", "failed") or (status == "ok" and not transcript):
+        whisper_status = "failed"
     elif status:
         whisper_status = status
     else:
@@ -574,8 +627,95 @@ def pipeline_logs_from_sqlite(conn, video_id: str) -> List[Dict[str, Any]]:
     return out
 
 
+def _dedupe_video_id(client, table_id: str, video_id: str) -> int:
+    """Keep exactly one row per video_id (newest / highest quality wins).
+
+    Guards against rare DELETE+INSERT races that leave duplicates.
+    Returns number of duplicate rows deleted (best-effort).
+    """
+    from google.cloud import bigquery
+
+    before = list(
+        client.query(
+            f"SELECT COUNT(*) AS n FROM `{table_id}` WHERE video_id = @vid",
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("vid", "STRING", video_id)
+                ]
+            ),
+        ).result()
+    )[0]["n"]
+    if int(before or 0) <= 1:
+        return 0
+
+    # Fingerprint keep-row via ROW_NUMBER; delete the rest.
+    client.query(
+        f"""
+        DELETE FROM `{table_id}`
+        WHERE video_id = @vid
+          AND TO_JSON_STRING((
+            enrichment_date, enrichment_quality_score, pipeline_version,
+            IFNULL(whisper_status, ''), IFNULL(ocr_text, ''), IFNULL(failure_reason, '')
+          )) NOT IN (
+            SELECT TO_JSON_STRING((
+              enrichment_date, enrichment_quality_score, pipeline_version,
+              IFNULL(whisper_status, ''), IFNULL(ocr_text, ''), IFNULL(failure_reason, '')
+            ))
+            FROM (
+              SELECT *
+              FROM `{table_id}`
+              WHERE video_id = @vid
+              ORDER BY enrichment_date DESC, enrichment_quality_score DESC
+              LIMIT 1
+            )
+          )
+        """,
+        job_config=bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("vid", "STRING", video_id)
+            ]
+        ),
+    ).result()
+    after = list(
+        client.query(
+            f"SELECT COUNT(*) AS n FROM `{table_id}` WHERE video_id = @vid",
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("vid", "STRING", video_id)
+                ]
+            ),
+        ).result()
+    )[0]["n"]
+    removed = max(0, int(before or 0) - int(after or 0))
+    if removed:
+        logger.info("Deduped video_id=%s removed=%s remaining=%s", video_id, removed, after)
+    return removed
+
+
+def dedupe_all_video_ids() -> int:
+    """Remove all duplicate video_id rows across the enriched table."""
+    ensure_dataset_and_tables()
+    from google.cloud import bigquery
+
+    client = _client()
+    table_id = enriched_table_id()
+    dups = [
+        r["video_id"]
+        for r in client.query(
+            f"""
+            SELECT video_id FROM `{table_id}`
+            GROUP BY video_id HAVING COUNT(*) > 1
+            """
+        ).result()
+    ]
+    removed = 0
+    for vid in dups:
+        removed += _dedupe_video_id(client, table_id, vid)
+    return removed
+
+
 def sync_video_from_sqlite(conn, video_id: str) -> Dict[str, int]:
-    """Upsert one enriched analytics row + append pipeline logs."""
+    """Idempotent upsert: DELETE by video_id + INSERT + dedupe guard + pipeline logs."""
     ensure_dataset_and_tables()
     row = build_enriched_row(conn, video_id)
     if not row:
@@ -605,6 +745,9 @@ def sync_video_from_sqlite(conn, video_id: str) -> Dict[str, int]:
     ).result()
 
     n = load_enriched_rows([row])
+    # Concurrent syncs can still race; enforce one row per video_id.
+    _dedupe_video_id(client, table_id, video_id)
+
     log_rows = pipeline_logs_from_sqlite(conn, video_id)
     n_logs = 0
     try:

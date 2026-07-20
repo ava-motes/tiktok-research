@@ -104,14 +104,21 @@ def _languages_from_annotation(annotation) -> str:
 
 
 def ocr_image_bytes(image_bytes: bytes, client=None) -> Dict[str, Any]:
-    """Run DOCUMENT_TEXT_DETECTION on one JPEG/PNG."""
+    """Run DOCUMENT_TEXT_DETECTION on one JPEG/PNG (retries transient API errors)."""
     from google.cloud import vision
+
+    from tiktok.enrichment.retry import with_retries
 
     client = client or _get_vision_client()
     image = vision.Image(content=image_bytes)
-    response = client.document_text_detection(image=image)
-    if response.error.message:
-        raise RuntimeError(response.error.message)
+
+    def _call():
+        response = client.document_text_detection(image=image)
+        if response.error.message:
+            raise RuntimeError(response.error.message)
+        return response
+
+    response = with_retries(_call, attempts=3, label="vision_ocr")
 
     text = ""
     confidence: Optional[float] = None

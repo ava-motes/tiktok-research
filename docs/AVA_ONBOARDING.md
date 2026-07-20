@@ -220,8 +220,10 @@ export PATH="$HOME/bin:$PATH"
 |------|---------|
 | Pull latest code | `git pull` |
 | Ensure BQ schema | `python scripts/enrich_pipeline.py --ensure-bq-schema` |
-| Enrich + sync (incremental) | `python scripts/enrich_pipeline.py --group batch_test --limit 50 --incremental --sync-bigquery` |
-| Validate after a run | `python scripts/run_production_validation.py` |
+| Daily production job | `python scripts/enrich_pipeline.py --production --group <group>` |
+| Enrich + sync (incremental) | `python scripts/enrich_pipeline.py --group batch_test --limit 50 --incremental --sync-bigquery --validate` |
+| Validate only | `python scripts/run_production_validation.py` |
+| Fix BQ consistency | `python scripts/fix_bq_consistency.py` |
 | Export research CSV/Parquet | `python scripts/export_research_dataset.py` |
 | Partial / quality audit | See `data/final_partial_audit.json` and `data/production_checklist.json` |
 

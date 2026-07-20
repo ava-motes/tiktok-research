@@ -6,7 +6,17 @@ __pycache__/
 *.csv
 data/
 audio/
+.DS_Store
+.vscode/
+
+# Local session dumps / screenshots (never commit)
+tiktok_*_screenshot.*
+tiktok_*_session.txt
+tiktok_*_test.txt
+*_terminal_session.txt
 
 # GCP service account keys (never commit)
 data/tiktok-enrichment-worker.json
 **/tiktok-enrichment-worker.json
+**/*service-account*.json
+**/credentials.json

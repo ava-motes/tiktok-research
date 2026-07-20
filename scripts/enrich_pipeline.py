@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Orchestrate enrichment workers and optional BigQuery sync.
+"""Orchestrate enrichment workers, BigQuery sync, validation, and export.
 
-Usage (on comm-cme-p01 only):
+Production flow (on comm-cme-p01 only):
+
+    Collection → SQLite → Whisper → Vision OCR → Emoji
+        → BigQuery Upsert → Production Validation → Research Export
+        → Pipeline Logs / metrics
+
+Usage:
     python scripts/enrich_pipeline.py --group batch_test --limit 5
     python scripts/enrich_pipeline.py --group sample --limit 100 --sync-bigquery
+    python scripts/enrich_pipeline.py --production --group daily
     python scripts/enrich_pipeline.py --ensure-bq-schema
-    python scripts/enrich_pipeline.py --inspect-bq-schema
 
-Does not modify TikTok API collection. Failures in one worker do not stop others.
+Does not modify TikTok API collection. Failures in one video/worker do not stop
+others; critical validation failures yield a non-zero exit code.
 """
 
 from __future__ import annotations
@@ -19,8 +26,9 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -50,7 +58,15 @@ def _run(script: str, extra: List[str]) -> int:
 
 
 def _write_sample_metrics(
-    conn, video_ids: List[str], path: str, wall_seconds: float, bq_ok: int, bq_fail: int
+    conn,
+    video_ids: List[str],
+    path: str,
+    wall_seconds: float,
+    bq_ok: int,
+    bq_fail: int,
+    *,
+    validation: Optional[Dict[str, Any]] = None,
+    export_paths: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     n = len(video_ids)
     ocr_ok = whisper_ok = whisper_text = emoji_ok = 0
@@ -62,10 +78,11 @@ def _write_sample_metrics(
         t = conn.execute(
             "SELECT status, transcript FROM video_transcripts WHERE video_id=?", (vid,)
         ).fetchone()
-        if t and t[0] == "ok":
+        if t and (t[1] or "").strip():
             whisper_ok += 1
-            if t[1]:
-                whisper_text += 1
+            whisper_text += 1
+        elif t and t[0] == "ok":
+            whisper_ok += 0  # status alone is not success
         if conn.execute("SELECT COUNT(*) FROM video_emojis WHERE video_id=?", (vid,)).fetchone()[0]:
             emoji_ok += 1
         for worker, bucket in (("ocr", ocr_lat), ("transcription", wh_lat)):
@@ -77,8 +94,32 @@ def _write_sample_metrics(
             if row and row[0] is not None:
                 bucket.append(float(row[0]))
 
+    # Rough cost estimate (Vision per frame + Whisper per minute of audio duration)
+    from tiktok.enrichment.bigquery_loader import (
+        PIPELINE_VERSION,
+        VISION_USD_PER_IMAGE,
+        WHISPER_USD_PER_MINUTE,
+    )
+
+    whisper_min = 0.0
+    vision_frames = 0
+    for vid in video_ids:
+        dur = conn.execute(
+            "SELECT COALESCE(audio_duration_seconds, 0) FROM video_transcripts WHERE video_id=?",
+            (vid,),
+        ).fetchone()
+        if dur and dur[0]:
+            whisper_min += float(dur[0]) / 60.0
+        fr = conn.execute(
+            "SELECT COUNT(*) FROM video_ocr WHERE video_id=?", (vid,)
+        ).fetchone()
+        if fr:
+            vision_frames += int(fr[0] or 0)
+    est_cost = whisper_min * WHISPER_USD_PER_MINUTE + vision_frames * VISION_USD_PER_IMAGE
+
     metrics = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "pipeline_version": PIPELINE_VERSION,
         "processed": n,
         "wall_clock_seconds": round(wall_seconds, 2),
         "avg_wall_seconds_per_video": round(wall_seconds / n, 2) if n else None,
@@ -88,8 +129,8 @@ def _write_sample_metrics(
             "avg_latency_seconds": round(sum(ocr_lat) / len(ocr_lat), 2) if ocr_lat else None,
         },
         "whisper": {
-            "success_count": whisper_ok,
-            "success_rate": round(whisper_ok / n, 3) if n else None,
+            "success_count": whisper_text,
+            "success_rate": round(whisper_text / n, 3) if n else None,
             "with_transcript_text": whisper_text,
             "avg_latency_seconds": round(sum(wh_lat) / len(wh_lat), 2) if wh_lat else None,
         },
@@ -101,21 +142,64 @@ def _write_sample_metrics(
             "synced_ok": bq_ok,
             "synced_fail": bq_fail,
         },
+        "estimated_cost_usd": round(est_cost, 4),
+        "validation": validation,
+        "export": export_paths,
         "video_ids": video_ids,
     }
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
     logger.info(
-        "Processed=%s OCR=%.0f%% Whisper=%.0f%% BQ=%s/%s avg_wall=%.1fs/video",
+        "Processed=%s OCR=%.0f%% Whisper=%.0f%% BQ=%s/%s avg_wall=%.1fs/video cost~$%.4f",
         n,
         100 * (metrics["ocr"]["success_rate"] or 0),
         100 * (metrics["whisper"]["success_rate"] or 0),
         bq_ok,
         bq_ok + bq_fail,
         metrics["avg_wall_seconds_per_video"] or 0,
+        est_cost,
     )
     return metrics
+
+
+def _append_validation_log(report: Dict[str, Any]) -> None:
+    """Record production validation outcome in tiktok_pipeline_logs."""
+    try:
+        from tiktok.enrichment.bigquery_loader import (
+            PIPELINE_VERSION,
+            append_pipeline_logs,
+            bigquery_configured,
+        )
+
+        if not bigquery_configured():
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        ok = bool(report.get("passed"))
+        failed = report.get("failed_checks") or []
+        append_pipeline_logs(
+            [
+                {
+                    "log_id": str(uuid.uuid4()),
+                    "video_id": "_pipeline_",
+                    "stage": "production_validation",
+                    "status": "ok" if ok else "error",
+                    "retry_count": 0,
+                    "pipeline_version": PIPELINE_VERSION,
+                    "start_time": now,
+                    "end_time": now,
+                    "duration_seconds": 0.0,
+                    "error_type": "" if ok else "validation_failed",
+                    "error_message": (
+                        "" if ok else f"failed_checks={','.join(failed)}"
+                    )[:500],
+                    "worker_hostname": os.uname().nodename,
+                    "created_at": now,
+                }
+            ]
+        )
+    except Exception as e:
+        logger.warning("Could not append validation pipeline log: %s", e)
 
 
 def main() -> int:
@@ -153,6 +237,21 @@ def main() -> int:
         help="After enrichment, upsert rows into tiktok_video_enriched",
     )
     parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Run production validation after BigQuery sync",
+    )
+    parser.add_argument(
+        "--export-research",
+        action="store_true",
+        help="Export research CSV/Parquet after validation (or after sync)",
+    )
+    parser.add_argument(
+        "--production",
+        action="store_true",
+        help="Daily job mode: incremental + sync + validate + export + metrics",
+    )
+    parser.add_argument(
         "--ensure-bq-schema",
         action="store_true",
         help="Only create/migrate BigQuery tiktok_video_enriched and exit",
@@ -167,12 +266,30 @@ def main() -> int:
         default="data/enrichment_sample_metrics.json",
         help="Write sample success/latency metrics JSON",
     )
+    parser.add_argument(
+        "--validation-report",
+        default="data/production_validation_report.json",
+    )
+    parser.add_argument(
+        "--export-prefix",
+        default="data/exports/tiktok_research_enriched",
+    )
     args = parser.parse_args()
 
     setup_logging()
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.chdir(root)
     cfg = load_config(args.config)
+
+    if args.production:
+        args.incremental = True
+        args.sync_bigquery = True
+        args.validate = True
+        args.export_research = True
+        args.force = False
+        logger.info(
+            "Production mode: incremental enrich → BQ upsert → validate → export"
+        )
 
     if args.ensure_bq_schema or args.inspect_bq_schema:
         from tiktok.enrichment.bigquery_loader import (
@@ -231,7 +348,7 @@ def main() -> int:
     logger.info("Candidate set size: %s", len(video_ids))
 
     t0 = time.perf_counter()
-    codes = {}
+    codes: Dict[str, int] = {}
     if "transcript" in steps:
         codes["transcript"] = _run("scripts/transcription_worker.py", common)
     if "ocr" in steps:
@@ -252,6 +369,7 @@ def main() -> int:
 
         if not bigquery_configured():
             logger.error("BigQuery not configured; skip sync")
+            bq_fail = len(video_ids) or 1
         else:
             for vid in video_ids:
                 try:
@@ -265,12 +383,70 @@ def main() -> int:
                     bq_fail += 1
                     logger.error("BQ sync failed for %s: %s", vid, e)
 
+    validation_report: Optional[Dict[str, Any]] = None
+    validation_failed = False
+    if args.validate:
+        if not args.sync_bigquery:
+            logger.warning("--validate without --sync-bigquery; validating current BQ state")
+        val_rc = _run(
+            "scripts/run_production_validation.py",
+            ["--out", args.validation_report],
+        )
+        try:
+            with open(args.validation_report, encoding="utf-8") as f:
+                validation_report = json.load(f)
+        except OSError:
+            validation_report = {"passed": False, "failed_checks": ["report_unreadable"]}
+        validation_failed = val_rc != 0 or not bool(
+            (validation_report or {}).get("passed")
+        )
+        if validation_report:
+            _append_validation_log(validation_report)
+        if validation_failed:
+            logger.error(
+                "Production validation FAILED: %s",
+                (validation_report or {}).get("failed_checks"),
+            )
+        else:
+            logger.info("Production validation PASSED")
+
+    export_paths: Optional[Dict[str, str]] = None
+    if args.export_research:
+        exp_rc = _run(
+            "scripts/export_research_dataset.py",
+            ["--out-prefix", args.export_prefix],
+        )
+        export_paths = {
+            "prefix": args.export_prefix,
+            "exit_code": str(exp_rc),
+            "csv": f"{args.export_prefix}.csv",
+            "parquet": f"{args.export_prefix}.parquet",
+        }
+        if exp_rc != 0:
+            logger.error("Research export failed (exit=%s)", exp_rc)
+
     wall = time.perf_counter() - t0
-    _write_sample_metrics(conn, video_ids, args.metrics_report, wall, bq_ok, bq_fail)
+    _write_sample_metrics(
+        conn,
+        video_ids,
+        args.metrics_report,
+        wall,
+        bq_ok,
+        bq_fail,
+        validation=validation_report,
+        export_paths=export_paths,
+    )
     conn.close()
 
-    logger.info("Pipeline finished: %s", codes)
-    return 0 if all(c == 0 for c in codes.values()) else 1
+    worker_failed = any(c != 0 for c in codes.values())
+    logger.info("Pipeline finished: workers=%s validation_failed=%s", codes, validation_failed)
+
+    # Non-zero when workers fail or critical validation fails
+    if validation_failed:
+        return 2
+    if worker_failed or (args.sync_bigquery and bq_fail and not bq_ok and video_ids):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
