@@ -1,7 +1,12 @@
 .env
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.csv
 data/
 audio/
+
+# GCP service account keys (never commit)
+data/tiktok-enrichment-worker.json
+**/tiktok-enrichment-worker.json

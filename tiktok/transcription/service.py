@@ -128,18 +128,8 @@ class WhisperAPITranscriptionService:
             logger.info(f"Compressing {video_id} ({file_size / 1024 / 1024:.1f} MB) to 32kbps mono")
             try:
                 import subprocess
-                import shutil
-                ffmpeg_bin = shutil.which("ffmpeg")
-                if not ffmpeg_bin:
-                    try:
-                        import imageio_ffmpeg
-                        ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
-                    except ImportError:
-                        pass
-                if not ffmpeg_bin:
-                    raise RuntimeError("ffmpeg not found")
                 subprocess.run(
-                    [ffmpeg_bin, "-y", "-i", audio_path, "-ac", "1", "-b:a", "32k", compressed_path],
+                    ["ffmpeg", "-y", "-i", audio_path, "-ac", "1", "-b:a", "32k", compressed_path],
                     check=True, capture_output=True,
                 )
             except Exception as e:

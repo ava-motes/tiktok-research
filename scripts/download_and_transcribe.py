@@ -111,10 +111,6 @@ def main():
                         help="Only run VAD (download + check + delete audio), do not transcribe")
     parser.add_argument("--max-recent", type=int, default=None,
                         help="Only transcribe the N most recent videos per handle")
-    parser.add_argument("--no-text-only", action="store_true",
-                        help="Only transcribe videos with no caption, hashtags, or voice_to_text")
-    parser.add_argument("--start-from", default=None,
-                        help="Skip all handles alphabetically before this one (e.g. edwardmliger)")
     args = parser.parse_args()
 
     setup_logging()
@@ -145,14 +141,6 @@ def main():
     if args.end_date:
         conditions.append("posted_at <= ?")
         params.append(args.end_date + " 23:59:59")
-
-    if args.no_text_only:
-        conditions.append("(caption IS NULL OR length(trim(caption)) = 0)")
-        conditions.append("(hashtags IS NULL OR length(trim(hashtags)) = 0)")
-
-    if args.start_from:
-        conditions.append("username >= ?")
-        params.append(args.start_from)
 
     where = " AND ".join(conditions)
     conn = get_connection(db_path)

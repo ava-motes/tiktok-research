@@ -32,7 +32,14 @@ CREATE TABLE IF NOT EXISTS videos (
     news_and_politics INTEGER,
     model_version     TEXT,
     processing_timestamp TEXT,
-    inserted_at       TEXT DEFAULT (datetime('now'))
+    inserted_at       TEXT DEFAULT (datetime('now')),
+    onscreen_text     TEXT,
+    onscreen_ocr_meta TEXT,
+    sticker_overlay_text TEXT,
+    sticker_info_list TEXT,
+    browser_ocr_text  TEXT,
+    visual_text_combined TEXT,
+    visual_text_source_priority TEXT
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -96,11 +103,42 @@ CREATE INDEX IF NOT EXISTS idx_comments_video_username ON comments(video_usernam
 """
 
 
+def _migrate_videos_columns(conn: sqlite3.Connection) -> None:
+    """Add columns for DBs created before newer video text fields existed."""
+    cur = conn.execute("PRAGMA table_info(videos)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "onscreen_text" not in cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN onscreen_text TEXT")
+    if "onscreen_ocr_meta" not in cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN onscreen_ocr_meta TEXT")
+    if "sticker_overlay_text" not in cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN sticker_overlay_text TEXT")
+    if "sticker_info_list" not in cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN sticker_info_list TEXT")
+    if "browser_ocr_text" not in cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN browser_ocr_text TEXT")
+    if "visual_text_combined" not in cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN visual_text_combined TEXT")
+    if "visual_text_source_priority" not in cols:
+        conn.execute(
+            "ALTER TABLE videos ADD COLUMN visual_text_source_priority TEXT"
+        )
+    conn.commit()
+
+
 def get_connection(db_path: str) -> sqlite3.Connection:
     """Open a SQLite connection and ensure schema exists."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA_SQL)
+    _migrate_videos_columns(conn)
+    # Additive enrichment staging tables (transcripts/OCR/emojis → BigQuery)
+    try:
+        from tiktok.enrichment.store import ensure_enrichment_schema
+
+        ensure_enrichment_schema(conn)
+    except Exception as e:
+        logger.debug("Enrichment schema skip: %s", e)
     logger.debug(f"Database ready: {db_path}")
     return conn
 
@@ -120,10 +158,12 @@ def build_text_for_nlp(caption: str, transcript: str) -> str:
 
 
 def insert_video(conn: sqlite3.Connection, video: dict):
-    """Insert a video row. Duplicates are ignored, but voice_to_text is updated
-    if the API now returns it for a video that previously had none."""
+    """Insert a video row. Duplicates are ignored, but voice_to_text and sticker
+    overlay fields are updated if the API now returns them for an existing row."""
     caption = video.get("caption", "")
     voice_to_text = video.get("voice_to_text", "")
+    sticker_overlay_text = video.get("sticker_overlay_text", "")
+    sticker_info_list = video.get("sticker_info_list", "")
     text_for_nlp = build_text_for_nlp(caption, voice_to_text)
     transcript_source = "api" if voice_to_text else None
 
@@ -131,8 +171,9 @@ def insert_video(conn: sqlite3.Connection, video: dict):
         """INSERT OR IGNORE INTO videos
         (video_id, username, video_url, create_time, posted_at, caption, hashtags,
          like_count, share_count, comment_count, save_count, duration_seconds,
-         voice_to_text, transcript, transcript_source, text_for_nlp, inserted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+         voice_to_text, transcript, transcript_source, text_for_nlp,
+         sticker_overlay_text, sticker_info_list, inserted_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             video["video_id"],
             video["username"],
@@ -150,6 +191,8 @@ def insert_video(conn: sqlite3.Connection, video: dict):
             voice_to_text or None,  # transcript defaults to voice_to_text
             transcript_source,
             text_for_nlp,
+            sticker_overlay_text or None,
+            sticker_info_list or None,
             _now_iso(),
         ),
     )
@@ -161,6 +204,73 @@ def insert_video(conn: sqlite3.Connection, video: dict):
             WHERE video_id=? AND (voice_to_text IS NULL OR voice_to_text = '')""",
             (voice_to_text, voice_to_text, "api", text_for_nlp, video["video_id"]),
         )
+
+    if sticker_overlay_text or sticker_info_list:
+        conn.execute(
+            """UPDATE videos SET sticker_overlay_text=?, sticker_info_list=?
+            WHERE video_id=? AND (sticker_overlay_text IS NULL OR sticker_overlay_text = '')""",
+            (
+                sticker_overlay_text or None,
+                sticker_info_list or None,
+                video["video_id"],
+            ),
+        )
+
+
+def update_video_onscreen_text(
+    conn: sqlite3.Connection,
+    video_id: str,
+    text: str,
+    meta: Optional[dict] = None,
+) -> int:
+    """Set ``onscreen_text`` (EasyOCR) and optional JSON meta for an existing row."""
+    row = conn.execute("SELECT 1 FROM videos WHERE video_id=?", (video_id,)).fetchone()
+    if not row:
+        return 0
+    conn.execute(
+        """UPDATE videos SET onscreen_text=?, onscreen_ocr_meta=?
+           WHERE video_id=?""",
+        (text, json.dumps(meta) if meta is not None else None, video_id),
+    )
+    return 1
+
+
+def update_video_browser_ocr_text(
+    conn: sqlite3.Connection,
+    video_id: str,
+    text: str,
+) -> int:
+    """Set ``browser_ocr_text`` (web hydration stickersOnItem) for an existing row."""
+    row = conn.execute("SELECT 1 FROM videos WHERE video_id=?", (video_id,)).fetchone()
+    if not row:
+        return 0
+    conn.execute(
+        "UPDATE videos SET browser_ocr_text=? WHERE video_id=?",
+        (text, video_id),
+    )
+    return 1
+
+
+def update_video_visual_text(
+    conn: sqlite3.Connection,
+    video_id: str,
+    combined: str,
+    source_priority: Optional[dict] = None,
+) -> int:
+    """Set merged ``visual_text_combined`` and provenance JSON for an existing row."""
+    row = conn.execute("SELECT 1 FROM videos WHERE video_id=?", (video_id,)).fetchone()
+    if not row:
+        return 0
+    conn.execute(
+        """UPDATE videos SET visual_text_combined=?, visual_text_source_priority=?
+           WHERE video_id=?""",
+        (
+            combined,
+            json.dumps(source_priority) if source_priority is not None else None,
+            video_id,
+        ),
+    )
+    return 1
 
 
 def insert_user(conn: sqlite3.Connection, user: dict):

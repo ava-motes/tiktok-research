@@ -1,0 +1,6 @@
+# On-screen text (OCR) evaluation batch — pip-only (no system Tesseract)
+opencv-python-headless>=4.8.0,<4.12
+easyocr>=1.7.0
+numpy>=1.24.0,<2
+pandas>=2.0.0
+torch  # EasyOCR dependency; CPU wheels install via pip
