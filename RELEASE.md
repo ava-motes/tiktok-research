@@ -1,10 +1,80 @@
-# Release notes — TikTok enrichment pipeline v5.0
+# TikTok Enrichment Pipeline v5.0
 
 **Git tag:** `v5.0`  
 **Pipeline version stamp:** `enrichment-v5.0`  
 **Status:** Production-ready — **core architecture frozen**
 
-This is the canonical milestone reference for collaborators. Detailed runbooks live in `docs/PIPELINE_ARCHITECTURE.md` and `docs/AVA_ONBOARDING.md`.
+Canonical milestone reference for collaborators. Detailed runbooks: `docs/PIPELINE_ARCHITECTURE.md`, `docs/AVA_ONBOARDING.md`.
+
+---
+
+## Highlights
+
+What v5.0 delivers:
+
+* Production-ready TikTok enrichment pipeline
+* End-to-end automated pipeline (collect → enrich → BigQuery → validate → export)
+* Google Cloud Vision OCR integration
+* Whisper transcription
+* Emoji extraction and normalization (CLDR descriptions)
+* Single production BigQuery analytics table (`tiktok_video_enriched`)
+* Operational logging (`tiktok_pipeline_logs`)
+* Automatic validation before production completion
+* Incremental enrichment with idempotent upserts
+* Production exports (CSV and Parquet)
+* Quality scoring and monitoring
+* Research-ready dataset
+
+---
+
+## Architecture
+
+```text
+TikTok Research API
+        │
+        ▼
+Collection (comm-cme-p01)
+        │
+        ▼
+SQLite staging
+        │
+        ▼
+Enrichment
+  ├─ Whisper
+  ├─ Google Vision OCR
+  └─ Emoji extraction
+        │
+        ▼
+BigQuery
+  ├─ tiktok_video_enriched
+  └─ tiktok_pipeline_logs
+        │
+        ▼
+Production validation → Research export (CSV / Parquet)
+```
+
+**Do not process TikTok media on laptops.** All collection and enrichment runs on `comm-cme-p01`.
+
+| Stage | Role |
+|-------|------|
+| Collection | Research API → SQLite (`videos` / `users` / comments staging) |
+| Whisper | Temp download → ffmpeg WAV → transcription → delete audio |
+| Vision OCR | Temp video → keyframes → Cloud Vision (retries) → delete video |
+| Emoji | Extract from caption / OCR / transcript / stickers + CLDR descriptions |
+| BigQuery | `DELETE` by `video_id` + `INSERT` + dedupe guard |
+| Validation | Uniqueness, PKs, Whisper/OCR consistency gates |
+| Export | Research columns only |
+
+---
+
+## Current status
+
+* Production validated (hard checks PASS)
+* ~516 enriched videos in BigQuery
+* Whisper coverage: >99%
+* OCR coverage: >97%
+* Automated production validation in `--production` mode
+* Ready for daily collection
 
 ---
 
@@ -18,49 +88,6 @@ v5.0 turns TikTok Research API collection into a complete enrichment pipeline:
 4. Run automated production validation  
 5. Export a researcher-facing CSV/Parquet dataset  
 6. Append operational events to pipeline logs  
-
-**Do not process TikTok media on laptops.** All collection and enrichment runs on `comm-cme-p01`.
-
----
-
-## Architecture
-
-```text
-TikTok Research API
-        │
-        ▼
-Collection (comm-cme-p01)  ── incremental ──►  SQLite staging
-        │
-        ├──────────────┬──────────────┐
-        ▼              ▼              ▼
-    Whisper      Google Vision     Emoji
-   (ffmpeg→WAV)   OCR (frames)    (CLDR names)
-        │              │              │
-        └──────────────┴──────────────┘
-                       │
-                       ▼
-              BigQuery upsert (idempotent)
-         tiktok_video_enriched
-                       │
-                       ▼
-           Production validation
-                       │
-                       ▼
-           Research export (CSV / Parquet)
-                       │
-                       ▼
-           tiktok_pipeline_logs + metrics
-```
-
-| Stage | Role |
-|-------|------|
-| Collection | Research API → SQLite (`videos` / `users` / comments staging) |
-| Whisper | Temp download → ffmpeg WAV → transcription → delete audio |
-| Vision OCR | Temp video → keyframes → Cloud Vision (retries) → delete video |
-| Emoji | Extract from caption / OCR / transcript / stickers + CLDR descriptions |
-| BigQuery | `DELETE` by `video_id` + `INSERT` + dedupe guard |
-| Validation | Uniqueness, PKs, Whisper/OCR consistency gates |
-| Export | Research columns only |
 
 ---
 
@@ -161,17 +188,18 @@ Production mode runs: incremental enrich → BQ upsert → validation → resear
 
 ---
 
-## Architecture freeze
+## Architecture freeze & roadmap
 
-**Do not change the core v5.0 architecture** unless there is a compelling production reason.
-
-Preferred direction for new work:
+**Do not change the core v5.0 architecture** unless a bug is discovered or there is a compelling production reason.  
+Priority from here: **collect and enrich research data**, not redesign the pipeline.
 
 | Version | Focus |
 |---------|--------|
-| **v5.1** | Comment collection, better OCR heuristics, screenshot segmentation, emoji taxonomy |
-| **v5.2** | Creator-level analytics, comment enrichment, sentiment/emotion, topic extraction |
-| **v6.0** | Multiple collection groups, distributed workers, Cloud Run/GCP scheduling, monitoring dashboards, CI/CD |
+| **v5.0** | ✅ Stable production pipeline |
+| **v5.1** | Daily automated collection (cron / Cloud Scheduler) |
+| **v5.2** | Comment collection |
+| **v5.3** | Large-scale enrichment (10k+ videos) |
+| **v6.0** | Research dashboard and analytics |
 
 ---
 
