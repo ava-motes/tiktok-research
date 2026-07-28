@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Export a researcher-friendly dataset from tiktok_video_enriched.
 
-Excludes ops/debug fields (latency, retries, internal pipeline columns).
+Exports a research subset of tiktok_video_enriched (see docs/SCHEMA.md, section 6).
+Intentionally excludes ops/debug fields (latency, retries, internal pipeline
+columns). It also omits `comments_json`, which is empty until comment collection
+is enabled; add it to RESEARCH_COLUMNS below once comments are collected.
+
+The canonical schema (including which columns are research vs operational) is
+tiktok/enrichment/bigquery_loader.py (RESEARCH_COLUMNS / OPERATIONAL_COLUMNS).
 
 Usage (on comm-cme-p01 preferred):
     python scripts/export_research_dataset.py

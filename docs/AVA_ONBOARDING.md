@@ -44,7 +44,7 @@ You do **not** need the service-account JSON on your laptop if you only browse B
 ```bash
 # On your Mac
 cd ~/Documents   # or wherever you keep projects
-git clone <REPO_URL_LAHARI_WILL_SEND>
+git clone https://github.com/ava-motes/tiktok-research.git tiktok_research
 cd tiktok_research
 ```
 
@@ -60,6 +60,9 @@ In Cursor chat / Agent, you can ask things like:
 
 Point Cursor at docs first:
 
+- `README.md` — entry point + canonical commands  
+- `docs/SCHEMA.md` — tables, columns, naming map, source-of-truth rules  
+- `docs/SCRIPTS.md` — production vs migration vs eval scripts  
 - `docs/PIPELINE_ARCHITECTURE.md` — system map + column meanings  
 - `docs/ENRICHMENT.md` — server + GCP setup  
 - `docs/AVA_ONBOARDING.md` — this file  
@@ -110,7 +113,7 @@ You should see `scripts/`, `tiktok/`, `config.yaml`, `.env` (not in git), `.venv
 ```bash
 ssh cme-p01
 cd ~
-git clone <REPO_URL> tiktok_research
+git clone https://github.com/ava-motes/tiktok-research.git tiktok_research
 cd tiktok_research
 ```
 
@@ -252,7 +255,7 @@ rsync -avz --exclude '.venv' --exclude '.git' --exclude 'audio' \
 
 Before leave, Lahari should send Ava:
 
-- [ ] GitHub repo URL + branch name  
+- [ ] GitHub repo: https://github.com/ava-motes/tiktok-research.git (branch `main`)  
 - [ ] Confirmation Ava can `ssh cme-p01`  
 - [ ] Confirmation Ava can open GCP project `cfme-mediaengagment-prod`  
 - [ ] Note that server `.env` and `~/keys/tiktok-enrichment-worker.json` already exist (or secure copy)  

@@ -1,13 +1,42 @@
+# Secrets / local env
 .env
+.env.*
+!.env.example
+
+# Python
 venv/
 .venv/
 __pycache__/
-*.pyc
-*.csv
-data/
-audio/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Editor / OS
 .DS_Store
 .vscode/
+.idea/
+
+# Local data, DBs, media, exports (never commit)
+data/
+audio/
+*.db
+*.sqlite
+*.sqlite3
+*.csv
+*.parquet
+*.mp4
+*.wav
+*.mp3
+*.webm
+*.m4a
+
+# Logs / temp outputs
+logs/
+*.log
+*.tmp
+*.temp
 
 # Local session dumps / screenshots (never commit)
 tiktok_*_screenshot.*
@@ -15,8 +44,9 @@ tiktok_*_session.txt
 tiktok_*_test.txt
 *_terminal_session.txt
 
-# GCP service account keys (never commit)
-data/tiktok-enrichment-worker.json
+# GCP service account keys / credentials (never commit)
 **/tiktok-enrichment-worker.json
 **/*service-account*.json
 **/credentials.json
+**/*-key.json
+*.pem

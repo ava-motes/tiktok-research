@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """End-to-end validation of TikTok Research pipeline (infrastructure → export).
 
+DEPRECATED for production gating: this legacy validator exercises the EasyOCR
+path (`scripts/enrich_videos_with_ocr.py`), which does not reach BigQuery. The
+canonical production gate is `scripts/run_production_validation.py`. Kept for
+broad infra/API smoke checks only. See docs/SCRIPTS.md.
+
 Usage (from project root):
     python scripts/run_full_validation.py
     python scripts/run_full_validation.py --skip-openai-costs   # skip classify/transcribe

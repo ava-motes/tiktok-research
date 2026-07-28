@@ -1,5 +1,10 @@
 """Transcribe videos that have audio files in the audio/ directory.
 
+DEPRECATED (legacy persistent-audio transcription writing SQLite `transcripts`).
+Production transcription is `scripts/transcription_worker.py` (temp media →
+transcribe → delete), which populates BigQuery `whisper_transcript` via
+`scripts/enrich_pipeline.py`. See docs/SCHEMA.md and docs/SCRIPTS.md.
+
 Usage:
     python scripts/transcribe_videos.py --group complete           # local faster-whisper
     python scripts/transcribe_videos.py --group complete --openai  # OpenAI Whisper API

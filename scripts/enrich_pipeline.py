@@ -10,11 +10,13 @@ Production flow (on comm-cme-p01 only):
 Usage:
     python scripts/enrich_pipeline.py --group batch_test --limit 5
     python scripts/enrich_pipeline.py --group sample --limit 100 --sync-bigquery
-    python scripts/enrich_pipeline.py --production --group daily
+    python scripts/enrich_pipeline.py --production --group sample
     python scripts/enrich_pipeline.py --ensure-bq-schema
 
-Does not modify TikTok API collection. Failures in one video/worker do not stop
-others; critical validation failures yield a non-zero exit code.
+`--group` must be a handle group defined in config.yaml (e.g. sample, test,
+complete, batch_test). Does not modify TikTok API collection. Failures in one
+video/worker do not stop others; critical validation failures yield a non-zero
+exit code.
 """
 
 from __future__ import annotations

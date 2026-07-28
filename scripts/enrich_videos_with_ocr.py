@@ -1,5 +1,11 @@
 """Multimodal visual-text enrichment for ingested TikTok videos.
 
+DEPRECATED for production OCR. This EasyOCR/browser path writes SQLite
+`videos.onscreen_text` / `visual_text_*` and does NOT populate BigQuery
+`ocr_text`. Production OCR is `scripts/ocr_worker.py` (Google Vision) via
+`scripts/enrich_pipeline.py`. Kept as optional research/eval tooling only.
+See docs/SCHEMA.md and docs/SCRIPTS.md.
+
 Architecture (API-first, OCR fallback only when needed):
 
     Research API sticker_overlay_text

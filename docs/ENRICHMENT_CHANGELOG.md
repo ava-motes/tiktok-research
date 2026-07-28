@@ -1,5 +1,11 @@
 # Enrichment implementation change log
 
+> **Historical only.** Current production architecture is `enrichment-v5.0`
+> (see [`RELEASE.md`](../RELEASE.md), [`SCHEMA.md`](SCHEMA.md),
+> [`PIPELINE_ARCHITECTURE.md`](PIPELINE_ARCHITECTURE.md)).
+> Production BigQuery tables are **only** `tiktok_video_enriched` and
+> `tiktok_pipeline_logs`. Do not treat older table names in this changelog as active.
+
 ## 2026-07-17 — Simplified BigQuery architecture (v3)
 
 ### Production tables (only two)

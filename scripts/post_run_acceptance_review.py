@@ -50,18 +50,19 @@ def _sample_rows(n: int) -> List[Dict[str, Any]]:
 
     client = bigquery.Client()
     table = enriched_table_id()
+    # Columns aligned to enrichment-v5.0 schema (see docs/SCHEMA.md). Cost fields
+    # live in tiktok_pipeline_logs, not the enriched table, so they are omitted here.
     q = f"""
     SELECT
-      video_id, creator_handle, enrichment_status, enrichment_quality_score,
-      audio_available, frames_with_text, emoji_count,
-      SUBSTR(IFNULL(transcript, ''), 1, 120) AS transcript_preview,
-      SUBSTR(IFNULL(cleaned_ocr_text, ocr_text), 1, 120) AS ocr_preview,
-      original_audio_format, converted_audio_format,
-      vision_api_cost_estimate, whisper_cost_estimate, total_cost_estimate
+      video_id, creator_username, enrichment_status, enrichment_quality_score,
+      whisper_status, ocr_quality_score, ocr_character_count,
+      SUBSTR(IFNULL(whisper_transcript, ''), 1, 120) AS transcript_preview,
+      SUBSTR(IFNULL(ocr_text, ''), 1, 120) AS ocr_preview,
+      emoji_characters, pipeline_version, enrichment_date
     FROM `{table}`
-    WHERE pipeline_version LIKE 'enrichment-v2.3%'
+    WHERE pipeline_version LIKE 'enrichment-v5%'
        OR enrichment_date >= FORMAT_DATE('%Y-%m-%d', DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY))
-    ORDER BY processing_timestamp DESC
+    ORDER BY enrichment_date DESC
     LIMIT @n
     """
     job = client.query(

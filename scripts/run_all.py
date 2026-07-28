@@ -1,5 +1,9 @@
 """Run the full pipeline: pull videos, pull user info, classify, export.
 
+DEPRECATED (pre-v5.0 collect+classify+CSV orchestration). The canonical
+orchestrator is `scripts/enrich_pipeline.py` (use `--production`). Kept for the
+legacy classify/CSV workflow only. See docs/SCRIPTS.md.
+
 Usage:
     python scripts/run_all.py                # Uses default groups from config
     python scripts/run_all.py --group sample # Override group for all steps
