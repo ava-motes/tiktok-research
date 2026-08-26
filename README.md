@@ -31,8 +31,9 @@ BigQuery: tiktok_video_enriched  (+ tiktok_pipeline_logs)
 Production validation  →  research CSV / Parquet export
 ```
 
-- **Analytics source of truth:** BigQuery
+- **Analytics source of truth (v5.0):** BigQuery
   `cfme-mediaengagment-prod.tiktok_research.tiktok_video_enriched`.
+- **Pipeline 1 (additive):** `tiktok_content_creators` (do not drop the v5.0 table).
 - **Staging:** SQLite `data/tiktok_research.db` on the server.
 
 ---
@@ -74,7 +75,17 @@ export PATH="$HOME/bin:$PATH"     # ffmpeg lives in ~/bin on this VM
 | Export research dataset | `python scripts/export_research_dataset.py` |
 
 Handle groups (`sample`, `test`, `complete`, `batch_test`, ...) are defined in
-[`config.yaml`](config.yaml). `enrich_pipeline.py` is the canonical orchestrator.
+[`config.yaml`](config.yaml). `enrich_pipeline.py` (without `--pipeline`) remains
+the v5.0 orchestrator for `tiktok_video_enriched`.
+
+**Pipeline 1** (content creators) is additive. Documented in
+[`docs/COLLECTION_PIPELINES.md`](docs/COLLECTION_PIPELINES.md). Server sample:
+
+```bash
+python scripts/run_content_creators.py --date 2026-08-25 --sample
+```
+
+Pipelines 2 and 3 are **not** production-ready.
 
 ---
 

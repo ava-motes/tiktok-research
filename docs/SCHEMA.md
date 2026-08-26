@@ -183,6 +183,21 @@ Upserted via `DELETE` by `video_id` + `INSERT` (`sync_video_from_sqlite`).
 `start_time`, `end_time`, `duration_seconds`, `error_type`, `error_message`,
 `worker_hostname`, `created_at`.
 
+### `tiktok_content_creators` — Pipeline 1 research table (additive)
+
+Created by `ensure_content_creators_table()`. Does **not** replace
+`tiktok_video_enriched`. Identity is `video_id`. Upsert via
+`sync_content_creator_video`.
+
+Provenance: `collection_source=content_creators`, `pipeline_id=content_creators`,
+`api_source=CONTENT_CREATOR_API`, `collection_date` (America/Chicago civil date),
+`collection_window_start` / `collection_window_end` (UTC).
+
+Field names follow the three-pipeline schema (`likes`, `verified_status`,
+`ocr_status`, `emoji_count`, …). See `BQ_SCHEMAS["tiktok_content_creators"]`.
+
+`tiktok_news_accounts` and `tiktok_keyword_search` are **not** created yet.
+
 ### Monitoring views
 
 Defined in [`sql/monitoring_dashboard.sql`](../sql/monitoring_dashboard.sql):

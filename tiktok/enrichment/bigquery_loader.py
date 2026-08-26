@@ -1,14 +1,16 @@
-"""BigQuery sync — simplified production architecture.
+"""BigQuery sync — v5.0 production path plus additive Pipeline 1 table.
 
-ONLY two BigQuery tables:
+v5.0 tables (unchanged default):
   - tiktok_video_enriched  (analytics, one row per video)
   - tiktok_pipeline_logs   (ops/debug events)
+
+Additive Pipeline 1 table (created only by ensure_content_creators_table):
+  - tiktok_content_creators
 
 Legacy BQ tables (videos_raw, video_transcripts, video_ocr, video_emojis)
 are deprecated and must not be written.
 
 SQLite on comm-cme-p01 remains temporary staging only.
-TikTok Research API collection is unchanged.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ DEFAULT_BQ_DATASET = "tiktok_research"
 
 ENRICHED_TABLE = "tiktok_video_enriched"
 PIPELINE_LOGS_TABLE = "tiktok_pipeline_logs"
+CONTENT_CREATORS_TABLE = "tiktok_content_creators"
 PIPELINE_VERSION = "enrichment-v5.0"
 
 # Logical column groups (same physical table; aids research vs ops clarity)
@@ -156,6 +159,56 @@ BQ_SCHEMAS: Dict[str, List[Dict[str, str]]] = {
         {"name": "worker_hostname", "type": "STRING"},
         {"name": "created_at", "type": "TIMESTAMP"},
     ],
+    # Additive Pipeline 1 table — created only via ensure_content_creators_table()
+    CONTENT_CREATORS_TABLE: [
+        {"name": "video_id", "type": "STRING"},
+        {"name": "video_url", "type": "STRING"},
+        {"name": "creator_username", "type": "STRING"},
+        {"name": "creator_display_name", "type": "STRING"},
+        {"name": "creator_bio", "type": "STRING"},
+        {"name": "verified_status", "type": "BOOLEAN"},
+        {"name": "follower_count", "type": "INTEGER"},
+        {"name": "following_count", "type": "INTEGER"},
+        {"name": "total_creator_likes", "type": "INTEGER"},
+        {"name": "creator_video_count", "type": "INTEGER"},
+        {"name": "posted_at", "type": "STRING"},
+        {"name": "caption", "type": "STRING"},
+        {"name": "hashtags", "type": "STRING"},
+        {"name": "likes", "type": "INTEGER"},
+        {"name": "comments_count", "type": "INTEGER"},
+        {"name": "shares", "type": "INTEGER"},
+        {"name": "favorites", "type": "INTEGER"},
+        {"name": "video_duration", "type": "FLOAT"},
+        {"name": "voice_to_text", "type": "STRING"},
+        {"name": "sticker_text", "type": "STRING"},
+        {"name": "whisper_transcript", "type": "STRING"},
+        {"name": "ocr_text", "type": "STRING"},
+        {"name": "raw_ocr_text", "type": "STRING"},
+        {"name": "cleaned_ocr_text", "type": "STRING"},
+        {"name": "ocr_quality_score", "type": "INTEGER"},
+        {"name": "emoji_characters", "type": "STRING"},
+        {"name": "emoji_descriptions", "type": "STRING"},
+        {"name": "emoji_category", "type": "STRING"},
+        {"name": "emoji_source", "type": "STRING"},
+        {"name": "emoji_count", "type": "INTEGER"},
+        {"name": "view_count", "type": "INTEGER"},
+        {"name": "region_code", "type": "STRING"},
+        {"name": "video_mention_list", "type": "STRING"},
+        {"name": "video_label", "type": "STRING"},
+        {"name": "effect_ids", "type": "STRING"},
+        {"name": "music_id", "type": "STRING"},
+        {"name": "enrichment_status", "type": "STRING"},
+        {"name": "whisper_status", "type": "STRING"},
+        {"name": "ocr_status", "type": "STRING"},
+        {"name": "failure_reason", "type": "STRING"},
+        {"name": "pipeline_version", "type": "STRING"},
+        {"name": "collection_source", "type": "STRING"},
+        {"name": "collection_date", "type": "STRING"},
+        {"name": "collection_window_start", "type": "STRING"},
+        {"name": "collection_window_end", "type": "STRING"},
+        {"name": "api_source", "type": "STRING"},
+        {"name": "pipeline_id", "type": "STRING"},
+    ],
 }
 
 
@@ -227,6 +280,10 @@ def pipeline_logs_table_id() -> str:
     return f"{gcp_project()}.{bq_dataset()}.{PIPELINE_LOGS_TABLE}"
 
 
+def content_creators_table_id() -> str:
+    return f"{gcp_project()}.{bq_dataset()}.{CONTENT_CREATORS_TABLE}"
+
+
 def _ensure_table(client, table_key: str) -> None:
     from google.cloud import bigquery
 
@@ -276,6 +333,13 @@ def ensure_dataset_and_tables() -> None:
         enriched_table_id(),
         pipeline_logs_table_id(),
     )
+
+
+def ensure_content_creators_table() -> None:
+    """Create tiktok_content_creators only. Does not alter tiktok_video_enriched."""
+    ensure_dataset_and_tables()
+    _ensure_table(_client(), CONTENT_CREATORS_TABLE)
+    logger.info("BigQuery Pipeline 1 table ready: %s", content_creators_table_id())
 
 
 def _latest_worker_latency(conn, video_id: str, worker: str) -> Optional[float]:
@@ -761,6 +825,169 @@ def sync_video_from_sqlite(conn, video_id: str) -> Dict[str, int]:
         conn.commit()
 
     return {ENRICHED_TABLE: n, PIPELINE_LOGS_TABLE: n_logs}
+
+
+def _sqlite_video_extra(conn, video_id: str) -> Dict[str, Any]:
+    row = conn.execute(
+        """SELECT view_count, region_code, video_mention_list, video_label,
+                  effect_ids, music_id, collection_source, collection_date,
+                  collection_window_start, collection_window_end, pipeline_id,
+                  api_source
+           FROM videos WHERE video_id=?""",
+        (video_id,),
+    ).fetchone()
+    return dict(row) if row else {}
+
+
+def build_content_creator_row(conn, video_id: str) -> Optional[Dict[str, Any]]:
+    """Map enrichment + API metadata into the Pipeline 1 BigQuery schema."""
+    base = build_enriched_row(conn, video_id)
+    if not base:
+        return None
+    extra = _sqlite_video_extra(conn, video_id)
+    from tiktok.enrichment.emoji_extract import aggregate_emoji_fields
+
+    em = [
+        dict(r)
+        for r in conn.execute(
+            """SELECT emoji, emoji_name, emoji_category, count, text_source,
+                      emoji_codepoint, emoji_kind
+               FROM video_emojis WHERE video_id=? ORDER BY id""",
+            (video_id,),
+        ).fetchall()
+    ]
+    emoji_count = int(aggregate_emoji_fields(em).get("emoji_count") or 0)
+
+    whisper_status = base.get("whisper_status") or "missing"
+    ocr_quality = int(base.get("ocr_quality_score") or 0)
+    ocr_text = (base.get("ocr_text") or "").strip()
+    ocr_error = _latest_worker_error(conn, video_id, "ocr")
+    if ocr_text and ocr_quality >= 25:
+        ocr_status = "ok"
+    elif ocr_error:
+        ocr_status = "failed"
+    else:
+        ocr_status = "missing"
+
+    return {
+        "video_id": base["video_id"],
+        "video_url": base.get("video_url") or "",
+        "creator_username": base.get("creator_username") or "",
+        "creator_display_name": base.get("creator_display_name") or "",
+        "creator_bio": base.get("creator_bio") or "",
+        "verified_status": bool(base.get("creator_verified")),
+        "follower_count": base.get("creator_followers"),
+        "following_count": base.get("creator_following"),
+        "total_creator_likes": base.get("creator_total_likes"),
+        "creator_video_count": base.get("creator_video_count"),
+        "posted_at": base.get("posted_at") or "",
+        "caption": base.get("caption") or "",
+        "hashtags": base.get("hashtags") or "",
+        "likes": base.get("like_count"),
+        "comments_count": base.get("comment_count"),
+        "shares": base.get("share_count"),
+        "favorites": base.get("favorite_count"),
+        "video_duration": base.get("video_duration_seconds"),
+        "voice_to_text": base.get("voice_to_text") or "",
+        "sticker_text": base.get("sticker_text") or "",
+        "whisper_transcript": base.get("whisper_transcript") or "",
+        "ocr_text": ocr_text,
+        "raw_ocr_text": base.get("raw_ocr_text") or "",
+        "cleaned_ocr_text": base.get("cleaned_ocr_text") or "",
+        "ocr_quality_score": ocr_quality,
+        "emoji_characters": base.get("emoji_characters") or "",
+        "emoji_descriptions": base.get("emoji_descriptions") or "",
+        "emoji_category": base.get("emoji_category") or "",
+        "emoji_source": base.get("emoji_source") or "",
+        "emoji_count": emoji_count,
+        "view_count": extra.get("view_count"),
+        "region_code": extra.get("region_code") or "",
+        "video_mention_list": extra.get("video_mention_list") or "",
+        "video_label": extra.get("video_label") or "",
+        "effect_ids": extra.get("effect_ids") or "",
+        "music_id": extra.get("music_id") or "",
+        "enrichment_status": base.get("enrichment_status") or "",
+        "whisper_status": whisper_status,
+        "ocr_status": ocr_status,
+        "failure_reason": base.get("failure_reason") or "",
+        "pipeline_version": PIPELINE_VERSION,
+        "collection_source": extra.get("collection_source") or "content_creators",
+        "collection_date": extra.get("collection_date") or "",
+        "collection_window_start": extra.get("collection_window_start") or "",
+        "collection_window_end": extra.get("collection_window_end") or "",
+        "api_source": extra.get("api_source") or "CONTENT_CREATOR_API",
+        "pipeline_id": extra.get("pipeline_id") or "content_creators",
+    }
+
+
+def _load_content_creator_rows(rows: List[Dict[str, Any]]) -> int:
+    if not rows:
+        return 0
+    if not bigquery_configured():
+        raise RuntimeError("BigQuery not configured")
+    from google.cloud import bigquery
+
+    client = _client()
+    job_config = bigquery.LoadJobConfig(
+        write_disposition="WRITE_APPEND",
+        schema=[
+            bigquery.SchemaField(f["name"], f["type"])
+            for f in BQ_SCHEMAS[CONTENT_CREATORS_TABLE]
+        ],
+    )
+    job = client.load_table_from_json(
+        rows, content_creators_table_id(), job_config=job_config
+    )
+    job.result()
+    return len(rows)
+
+
+def sync_content_creator_video(conn, video_id: str) -> Dict[str, int]:
+    """Upsert one row into tiktok_content_creators. Does not write tiktok_video_enriched."""
+    ensure_content_creators_table()
+    row = build_content_creator_row(conn, video_id)
+    if not row:
+        logger.warning("No videos row for %s; skip content_creators BQ sync", video_id)
+        return {CONTENT_CREATORS_TABLE: 0, PIPELINE_LOGS_TABLE: 0}
+
+    from tiktok.enrichment.validate_row import validate_pipeline_row
+
+    ok, errors = validate_pipeline_row(row)
+    if not ok:
+        logger.error(
+            "Pipeline 1 validation failed for %s: %s — skip BQ upload", video_id, errors
+        )
+        return {CONTENT_CREATORS_TABLE: 0, PIPELINE_LOGS_TABLE: 0}
+
+    from google.cloud import bigquery
+
+    from tiktok.enrichment.store import touch_pipeline_status
+
+    client = _client()
+    table_id = content_creators_table_id()
+    client.query(
+        f"DELETE FROM `{table_id}` WHERE video_id = @vid",
+        job_config=bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("vid", "STRING", video_id)
+            ]
+        ),
+    ).result()
+    n = _load_content_creator_rows([row])
+
+    log_rows = pipeline_logs_from_sqlite(conn, video_id)
+    n_logs = 0
+    try:
+        n_logs = append_pipeline_logs(log_rows)
+    except Exception as e:
+        logger.warning("Pipeline logs upload failed for %s: %s", video_id, e)
+
+    if n > 0:
+        uploaded_at = datetime.now(timezone.utc).isoformat()
+        touch_pipeline_status(conn, video_id, bq_uploaded=uploaded_at)
+        conn.commit()
+
+    return {CONTENT_CREATORS_TABLE: n, PIPELINE_LOGS_TABLE: n_logs}
 
 
 def count_enriched_rows(video_ids: Optional[List[str]] = None) -> int:

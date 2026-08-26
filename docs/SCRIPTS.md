@@ -13,8 +13,14 @@ All processing runs on the server `comm-cme-p01` (see [`../README.md`](../README
 
 | Script | Purpose |
 |--------|---------|
-| `enrich_pipeline.py` | **Canonical orchestrator** (collect → enrich → BQ → validate → export); use `--production` |
+| `enrich_pipeline.py` | **v5.0 orchestrator** (enrich → `tiktok_video_enriched`); `--pipeline content_creators` is the additive Pipeline 1 sync |
 | `test_setup.py` | Env / API / connectivity sanity check |
+| `validate_handles.py` | Validate a handle group via Research API `user/info` → CSV (does not edit config) |
+| `run_content_creators.py` | **Pipeline 1 daily command** (`--date YYYY-MM-DD --sample`) |
+| `collect_content_creators.py` | Pipeline 1 collection + CSV only |
+| `validate_content_creators.py` | Pipeline 1 run summary |
+| `collect_news_accounts.py` | **Not production** (exits until Pipeline 2 is approved) |
+| `collect_keyword_search.py` | **Not production** (exits until Pipeline 3 is approved) |
 | `pull_videos.py` | Collect videos → SQLite |
 | `pull_user_info.py` | Collect user/profile info → SQLite |
 | `pull_recent_videos.py` | Incremental recent-video pull |

@@ -82,9 +82,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Emoji extraction worker")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--group", default=None)
-    parser.add_argument("--video-id", default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--force", action="store_true")
+    from tiktok.collection.video_ids import add_video_id_args, resolve_video_ids
+
+    add_video_id_args(parser)
     args = parser.parse_args()
 
     setup_logging()
@@ -96,7 +98,7 @@ def main() -> int:
     ensure_enrichment_schema(conn)
 
     handles = cfg.get_handles(args.group) if args.group else None
-    video_ids = [args.video_id] if args.video_id else None
+    video_ids = resolve_video_ids(args)
     rows = fetch_videos_for_enrichment(
         conn,
         handles=handles,

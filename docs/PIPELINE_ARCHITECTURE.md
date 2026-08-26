@@ -117,6 +117,13 @@ Quality, latency, pipeline provenance, failure detail. Prefer `tiktok_pipeline_l
 
 Constants `RESEARCH_COLUMNS` / `OPERATIONAL_COLUMNS` live in `tiktok/enrichment/bigquery_loader.py`.
 
+## Additive Pipeline 1 table
+
+`tiktok_content_creators` is a separate research table. Daily command:
+`scripts/run_content_creators.py --date YYYY-MM-DD --sample`.
+See [`COLLECTION_PIPELINES.md`](COLLECTION_PIPELINES.md). The v5.0
+`tiktok_video_enriched` path is unchanged.
+
 ## BigQuery: `tiktok_pipeline_logs`
 
 Append-only ops log: stage, status, retry_count, timings, error_type/message, hostname.  

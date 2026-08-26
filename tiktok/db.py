@@ -123,6 +123,23 @@ def _migrate_videos_columns(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE videos ADD COLUMN visual_text_source_priority TEXT"
         )
+    extra = {
+        "view_count": "INTEGER",
+        "region_code": "TEXT",
+        "video_mention_list": "TEXT",
+        "video_label": "TEXT",
+        "effect_ids": "TEXT",
+        "music_id": "TEXT",
+        "collection_source": "TEXT",
+        "collection_date": "TEXT",
+        "collection_window_start": "TEXT",
+        "collection_window_end": "TEXT",
+        "pipeline_id": "TEXT",
+        "api_source": "TEXT",
+    }
+    for name, decl in extra.items():
+        if name not in cols:
+            conn.execute(f"ALTER TABLE videos ADD COLUMN {name} {decl}")
     conn.commit()
 
 
@@ -215,6 +232,90 @@ def insert_video(conn: sqlite3.Connection, video: dict):
                 video["video_id"],
             ),
         )
+
+
+def upsert_collected_video(conn: sqlite3.Connection, video: dict) -> bool:
+    """Insert or update API metadata for a collected video.
+
+    Does not touch enrichment-only columns (onscreen_text, visual_text_*,
+    classification). Returns True if the row was newly inserted.
+    """
+    vid = video["video_id"]
+    existed = conn.execute(
+        "SELECT 1 FROM videos WHERE video_id=? LIMIT 1", (vid,)
+    ).fetchone()
+    if not existed:
+        insert_video(conn, video)
+    else:
+        conn.execute(
+            """UPDATE videos SET
+                username=?, video_url=?, create_time=?, posted_at=?, caption=?,
+                hashtags=?, like_count=?, share_count=?, comment_count=?,
+                save_count=?, duration_seconds=?
+               WHERE video_id=?""",
+            (
+                video["username"],
+                video.get("video_url", ""),
+                video.get("create_time", 0),
+                video.get("posted_at", ""),
+                video.get("caption", ""),
+                video.get("hashtags", ""),
+                video.get("like_count", 0),
+                video.get("share_count", 0),
+                video.get("comment_count", 0),
+                video.get("save_count", 0),
+                video.get("duration_seconds", 0),
+                vid,
+            ),
+        )
+        vtt = video.get("voice_to_text") or ""
+        if vtt:
+            conn.execute(
+                """UPDATE videos SET voice_to_text=?, transcript=?, transcript_source=?,
+                       text_for_nlp=?
+                   WHERE video_id=? AND (voice_to_text IS NULL OR voice_to_text = '')""",
+                (
+                    vtt,
+                    vtt,
+                    "api",
+                    build_text_for_nlp(video.get("caption", ""), vtt),
+                    vid,
+                ),
+            )
+        sticker = video.get("sticker_overlay_text") or ""
+        sticker_json = video.get("sticker_info_list") or ""
+        if sticker or sticker_json:
+            conn.execute(
+                """UPDATE videos SET sticker_overlay_text=?, sticker_info_list=?
+                   WHERE video_id=? AND (sticker_overlay_text IS NULL
+                                         OR sticker_overlay_text = '')""",
+                (sticker or None, sticker_json or None, vid),
+            )
+
+    conn.execute(
+        """UPDATE videos SET
+            view_count=?, region_code=?, video_mention_list=?, video_label=?,
+            effect_ids=?, music_id=?, collection_source=?, collection_date=?,
+            collection_window_start=?, collection_window_end=?, pipeline_id=?,
+            api_source=?
+           WHERE video_id=?""",
+        (
+            video.get("view_count"),
+            video.get("region_code") or "",
+            video.get("video_mention_list") or "",
+            video.get("video_label") or "",
+            video.get("effect_ids") or "",
+            video.get("music_id") or "",
+            video.get("collection_source") or "",
+            video.get("collection_date") or "",
+            video.get("collection_window_start") or "",
+            video.get("collection_window_end") or "",
+            video.get("pipeline_id") or "",
+            video.get("api_source") or "",
+            vid,
+        ),
+    )
+    return existed is None
 
 
 def update_video_onscreen_text(

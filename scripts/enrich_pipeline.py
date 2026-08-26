@@ -209,6 +209,11 @@ def main() -> int:
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--group", default=None)
     parser.add_argument("--video-id", default=None)
+    parser.add_argument(
+        "--video-ids-file",
+        default=None,
+        help="Text file with one video_id per line (Pipeline 1)",
+    )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument(
         "--steps",
@@ -236,7 +241,15 @@ def main() -> int:
     parser.add_argument(
         "--sync-bigquery",
         action="store_true",
-        help="After enrichment, upsert rows into tiktok_video_enriched",
+        help="After enrichment, upsert rows into tiktok_video_enriched "
+        "(or tiktok_content_creators when --pipeline content_creators)",
+    )
+    parser.add_argument(
+        "--pipeline",
+        default=None,
+        help="Optional collection pipeline id. "
+        "content_creators writes tiktok_content_creators instead of "
+        "tiktok_video_enriched. Omit to keep the v5.0 path.",
     )
     parser.add_argument(
         "--validate",
@@ -333,6 +346,8 @@ def main() -> int:
         common += ["--group", args.group]
     if args.video_id:
         common += ["--video-id", args.video_id]
+    if args.video_ids_file:
+        common += ["--video-ids-file", args.video_ids_file]
     if args.limit is not None:
         common += ["--limit", str(args.limit)]
     if use_force:
@@ -342,6 +357,14 @@ def main() -> int:
     ensure_enrichment_schema(conn)
     handles = cfg.get_handles(args.group) if args.group else None
     video_ids_arg = [args.video_id] if args.video_id else None
+    if args.video_ids_file:
+        from tiktok.collection.video_ids import resolve_video_ids
+
+        from argparse import Namespace
+
+        video_ids_arg = resolve_video_ids(
+            Namespace(video_id=args.video_id, video_ids_file=args.video_ids_file)
+        )
     # Same selection workers use when --force (no need_* filters)
     preselect = fetch_videos_for_enrichment(
         conn, handles=handles, video_ids=video_ids_arg, limit=args.limit
@@ -366,18 +389,25 @@ def main() -> int:
     if args.sync_bigquery:
         from tiktok.enrichment.bigquery_loader import (
             bigquery_configured,
+            sync_content_creator_video,
             sync_video_from_sqlite,
         )
 
+        pipeline_id = (args.pipeline or "").strip()
         if not bigquery_configured():
             logger.error("BigQuery not configured; skip sync")
             bq_fail = len(video_ids) or 1
         else:
             for vid in video_ids:
                 try:
-                    counts = sync_video_from_sqlite(conn, vid)
+                    if pipeline_id == "content_creators":
+                        counts = sync_content_creator_video(conn, vid)
+                        written = counts.get("tiktok_content_creators", 0)
+                    else:
+                        counts = sync_video_from_sqlite(conn, vid)
+                        written = counts.get("tiktok_video_enriched", 0)
                     logger.info("BQ sync %s: %s", vid, counts)
-                    if counts.get("tiktok_video_enriched", 0) > 0:
+                    if written > 0:
                         bq_ok += 1
                     else:
                         bq_fail += 1

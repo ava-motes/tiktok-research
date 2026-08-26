@@ -24,6 +24,25 @@ VIDEO_FIELDS = [
     "sticker_info_list",
 ]
 
+# Requested only by Pipeline 1 (not by v5.0 pull_videos.py)
+PIPELINE_EXTRA_VIDEO_FIELDS = [
+    "view_count",
+    "region_code",
+    "video_mention_list",
+    "video_label",
+    "effect_ids",
+    "music_id",
+]
+
+
+def video_fields_param(*, extra: bool = False) -> str:
+    names = list(VIDEO_FIELDS)
+    if extra:
+        for f in PIPELINE_EXTRA_VIDEO_FIELDS:
+            if f not in names:
+                names.append(f)
+    return ",".join(names)
+
 
 def flatten_sticker_overlay_text(sticker_info_list: Any) -> str:
     """Join non-empty ``sticker_name`` values from Research API ``sticker_info_list``."""
@@ -92,12 +111,31 @@ def format_video(video: dict) -> dict:
         "voice_to_text": video.get("voice_to_text", ""),
         "sticker_overlay_text": sticker_overlay_text,
         "sticker_info_list": sticker_info_list_json,
+        "view_count": video.get("view_count"),
+        "region_code": video.get("region_code") or "",
+        "video_mention_list": _json_field(video.get("video_mention_list")),
+        "video_label": _json_field(video.get("video_label")),
+        "effect_ids": _json_field(video.get("effect_ids")),
+        "music_id": video.get("music_id") or "",
     }
+
+
+def _json_field(value: Any) -> str:
+    """Serialize API list/dict fields; leave blank when the API omitted them."""
+    if value is None or value == "":
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def query_videos_for_chunk(client: TikTokClient, username: str,
                             chunk_start: str, chunk_end: str,
-                            max_videos: Optional[int] = None) -> List[dict]:
+                            max_videos: Optional[int] = None,
+                            extra_fields: bool = False) -> List[dict]:
     """Fetch all videos for a user within a single date chunk (with pagination).
 
     If ``max_videos`` is set, stop after collecting that many videos (across pages).
@@ -134,10 +172,86 @@ def query_videos_for_chunk(client: TikTokClient, username: str,
         response = client.post(
             endpoint="research/video/query/",
             body=body,
-            params={"fields": ",".join(VIDEO_FIELDS)},
+            params={"fields": video_fields_param(extra=extra_fields)},
             handle=username,
             chunk_start=chunk_start,
             chunk_end=chunk_end,
+        )
+
+        if response is None:
+            break
+
+        data = response.get("data", {})
+        batch = data.get("videos", [])
+        if max_videos is not None:
+            space = max_videos - len(all_videos)
+            if space <= 0:
+                break
+            if len(batch) > space:
+                batch = batch[:space]
+        all_videos.extend(batch)
+
+        if max_videos is not None and len(all_videos) >= max_videos:
+            break
+
+        if not data.get("has_more", False):
+            break
+
+        cursor = data.get("cursor", 0)
+        search_id = data.get("search_id", search_id)
+
+    return [format_video(v) for v in all_videos]
+
+
+def query_videos_by_keyword(
+    client: TikTokClient,
+    keyword: str,
+    chunk_start: str,
+    chunk_end: str,
+    max_videos: Optional[int] = None,
+) -> List[dict]:
+    """Fetch videos matching a keyword within a date chunk (paginated).
+
+    Uses Research API ``keyword`` IN filter (same pattern as legacy/videos.py).
+    """
+    if max_videos is not None and max_videos <= 0:
+        return []
+
+    query = {
+        "and": [
+            {
+                "operation": "IN",
+                "field_name": "keyword",
+                "field_values": [keyword],
+            }
+        ]
+    }
+
+    all_videos: List[dict] = []
+    cursor = 0
+    search_id = None
+    # Use keyword as handle label for raw JSONL archival
+    handle_label = f"kw:{keyword}"[:80]
+
+    while True:
+        body = {
+            "query": query,
+            "max_count": 100,
+            "start_date": chunk_start,
+            "end_date": chunk_end,
+        }
+        if search_id:
+            body["cursor"] = cursor
+            body["search_id"] = search_id
+
+        response = client.post(
+            endpoint="research/video/query/",
+            body=body,
+            params={"fields": ",".join(VIDEO_FIELDS)},
+            handle=handle_label,
+            chunk_start=chunk_start,
+            chunk_end=chunk_end,
+            keyword=keyword,
         )
 
         if response is None:
