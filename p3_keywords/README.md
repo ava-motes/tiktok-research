@@ -12,13 +12,14 @@ TikTok **client ID ending 993**. Dedicated keys: `KEYWORD_SEARCH_API_CLIENT_KEY`
 | Results | `results/csv/` · `results/parquet/` · `results/summaries/` |
 | Logs / checkpoints | `logs/` · `logs/checkpoints/` |
 | Local Box copies | `box/` (`YYYY-MM-DD.csv`) |
+| GCS archive | `gs://tiktok_research_3/p3_keywords/YYYY-MM-DD.csv` |
 | Copy-paste SQL | `sql/keyword.sql` |
 
 Creators already in P1 or P2 handle lists are excluded from P3 BigQuery rows.
 
 Does **not** write `content_creators`, `news`, or `tiktok_video_enriched`.
 
-`run_keyword.py` enriches by calling `common/scripts/enrich_pipeline.py --pipeline keyword` only.
+`run_keyword.py` enriches by calling `common/scripts/enrich_pipeline.py --pipeline keyword` only. After a fully successful run it archives the date CSV via `common/scripts/upload_run_csv.py` (same date overwrites).
 
 The canonical daily job **is** the five-term sample. Do **not** run the full 263-term list until that sample is reviewed.
 

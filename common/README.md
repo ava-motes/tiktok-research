@@ -7,7 +7,7 @@ One copy of code used by P1, P2, and P3. Do not duplicate these packages into pi
 | `api/` | TikTok Research API client (`video/query`, `user/info`, download) |
 | `tiktok/` | Auth, SQLite, pipeline registry, collection, checkpoints, Box, server guard |
 | `enrichment/` | Whisper, Vision OCR, emoji, BigQuery upsert |
-| `scripts/` | Shared workers + `enrich_pipeline.py --pipeline …` |
+| `scripts/` | Shared workers + `enrich_pipeline.py --pipeline …` + `upload_run_csv.py` |
 | `server/` | Deploy / venv / GCP env helpers for `comm-cme-p01` |
 | `config.yaml` | Pipeline registry, sample handles, Box folder IDs, enrichment defaults |
 | `bootstrap.py` | Puts `common/` on `sys.path` and chdirs to the repo root |

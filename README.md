@@ -16,6 +16,25 @@ Each pipeline has its own API credentials, input list, BigQuery table, results, 
 
 Shared enrichment lives in `common/scripts/enrich_pipeline.py`. Each runner calls it with **only that pipeline’s** `--pipeline` value (`content_creators`, `news`, or `keyword`) so credentials and BigQuery tables stay isolated without duplicating worker code.
 
+After a **fully successful** daily run (collect + enrich/BQ + validate), the runner archives that run’s CSV to GCS. The object name is the research `--date` (same date overwrites). Partial or failed runs are skipped.
+
+```text
+gs://tiktok_research_3/p1_content_creators/YYYY-MM-DD.csv
+gs://tiktok_research_3/p2_news/YYYY-MM-DD.csv
+gs://tiktok_research_3/p3_keywords/YYYY-MM-DD.csv
+```
+
+Manual backfill / smoke (server, after `source .venv` + `.env`):
+
+```bash
+python common/scripts/upload_run_csv.py \
+  --pipeline content_creators|news|keyword \
+  --date YYYY-MM-DD \
+  --file /path/to/that_run.csv
+```
+
+Details: [`docs/PIPELINES.md`](docs/PIPELINES.md) · [`docs/SERVER.md`](docs/SERVER.md).
+
 ## Canonical daily run (server)
 
 Do not treat `--sample` as the daily job. Smoke tests stay in each pipeline README.
@@ -40,7 +59,7 @@ P3’s daily default is the five-term sample (`news, trump, tsa, ice, netanyahu`
 
 Sequential wrapper (same flags): `bash common/scripts/run_daily_all.sh`
 
-Do **not** commit this layout until the reorganized paths have been tested on `comm-cme-p01`. After pulling to the server, keep the existing server `.env` in place.
+After pulling on the server, keep the existing server `.env` in place (never commit or copy it).
 
 Static check (laptop-safe, no API): `python common/scripts/validate_pipelines_static.py`
 

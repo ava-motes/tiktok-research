@@ -10,11 +10,12 @@ TikTok **client ID ending 861**. Dedicated keys: `TIKTOK_CLIENT_*` or `CONTENT_C
 | Results | `results/csv/` · `results/parquet/` · `results/summaries/` |
 | Logs / checkpoints | `logs/` · `logs/checkpoints/` |
 | Local Box copies | `box/` (`YYYY-MM-DD.csv`) |
+| GCS archive | `gs://tiktok_research_3/p1_content_creators/YYYY-MM-DD.csv` |
 | Copy-paste SQL | `sql/content_creators.sql` |
 
 Does **not** write `news`, `keyword`, or `tiktok_video_enriched`.
 
-`run_content_creators.py` enriches by calling `common/scripts/enrich_pipeline.py --pipeline content_creators` only.
+`run_content_creators.py` enriches by calling `common/scripts/enrich_pipeline.py --pipeline content_creators` only. After a fully successful run it archives the date CSV via `common/scripts/upload_run_csv.py` (same date overwrites).
 
 Collection and enrichment run **only** on `comm-cme-p01`.
 

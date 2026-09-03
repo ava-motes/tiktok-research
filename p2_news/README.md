@@ -10,11 +10,12 @@ TikTok **client ID ending 443**. Dedicated keys: `NEWS_API_CLIENT_KEY` / `NEWS_A
 | Results | `results/csv/` · `results/parquet/` · `results/summaries/` |
 | Logs / checkpoints | `logs/` · `logs/checkpoints/` |
 | Local Box copies | `box/` (`YYYY-MM-DD.csv`) |
+| GCS archive | `gs://tiktok_research_3/p2_news/YYYY-MM-DD.csv` |
 | Copy-paste SQL | `sql/news.sql` |
 
 Does **not** write `content_creators`, `keyword`, or `tiktok_video_enriched`.
 
-`run_news.py` enriches by calling `common/scripts/enrich_pipeline.py --pipeline news` only.
+`run_news.py` enriches by calling `common/scripts/enrich_pipeline.py --pipeline news` only. After a fully successful run it archives the date CSV via `common/scripts/upload_run_csv.py` (same date overwrites).
 
 Collection and enrichment run **only** on `comm-cme-p01`.
 

@@ -103,6 +103,11 @@ def main() -> int:
         action="store_true",
         help="Enrich with OCR and emoji only (skip Whisper transcription)",
     )
+    parser.add_argument(
+        "--skip-gcs",
+        action="store_true",
+        help="Do not archive the completed CSV to GCS",
+    )
     args = parser.parse_args()
 
     require_collection_server()
@@ -258,7 +263,21 @@ def main() -> int:
         return 1
     if enrich_rc not in (0, None):
         return enrich_rc
-    return 0 if val_rc == 0 else val_rc
+    if val_rc != 0:
+        return val_rc
+
+    from tiktok.gcs_archive import upload_run_csv_after_success
+
+    csv_paths = [collect.get("csv_path") or ""]
+    return upload_run_csv_after_success(
+        run_fn=_run,
+        pipeline_id=PIPELINE_KEYWORD,
+        research_date=args.date,
+        cfg=cfg,
+        pipeline=pipeline,
+        csv_paths=csv_paths,
+        skip=args.skip_gcs,
+    )
 
 
 if __name__ == "__main__":

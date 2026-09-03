@@ -28,7 +28,32 @@ Required keys:
 
 GCP project: `cfme-mediaengagment-prod`, dataset `tiktok_research`.
 
-Test the reorganized script paths on this host before considering the layout final. Do not commit from the laptop until that server check has run.
+Successful daily CSVs are archived (overwrite same `--date`) in the existing project bucket [tiktok_research_3](https://console.cloud.google.com/storage/browser/tiktok_research_3?project=cfme-mediaengagment-prod):
+
+```text
+gs://tiktok_research_3/p1_content_creators/YYYY-MM-DD.csv
+gs://tiktok_research_3/p2_news/YYYY-MM-DD.csv
+gs://tiktok_research_3/p3_keywords/YYYY-MM-DD.csv
+```
+
+Console/admin access is the Ellery GCP account (`ellery.ellis@utexas.edu`). Daily uploads on `comm-cme-p01` use the server’s existing `GOOGLE_APPLICATION_CREDENTIALS` (enrichment worker). Do not add GCS keys to git or a laptop `.env`.
+
+If the worker cannot write objects, grant it on this bucket once:
+
+```bash
+gcloud storage buckets add-iam-policy-binding gs://tiktok_research_3 \
+  --project=cfme-mediaengagment-prod \
+  --member=serviceAccount:tiktok-enrichment-worker@cfme-mediaengagment-prod.iam.gserviceaccount.com \
+  --role=roles/storage.objectAdmin
+```
+
+Smoke test (no TikTok collection):
+
+```bash
+python common/scripts/upload_run_csv.py \
+  --pipeline content_creators --date 1900-01-01 --file /path/to/small.csv
+gcloud storage ls -l gs://tiktok_research_3/p1_content_creators/
+```
 
 After SSH:
 

@@ -13,6 +13,7 @@ Keep the existing server `.env` after a git pull. Do not copy it into the repo o
 | BigQuery | `content_creators` | `news` | `keyword` |
 | Daily | `run_content_creators.py` | `run_news.py` | `run_keyword.py --sample` |
 | Box folder | `p1_content_creators` | `p2_news` | `p3_key_words` |
+| GCS archive | `gs://tiktok_research_3/p1_content_creators/YYYY-MM-DD.csv` | `gs://tiktok_research_3/p2_news/YYYY-MM-DD.csv` | `gs://tiktok_research_3/p3_keywords/YYYY-MM-DD.csv` |
 
 ## Canonical daily commands
 
@@ -54,3 +55,18 @@ Count P1/P2 videos with `collection_status = 'ok'`. `api_failed` rows are handle
 P3 `--sample` is `news, trump, tsa, ice, netanyahu` — not the first five file terms. Do not run the full 263-term list until that sample is reviewed.
 
 `--utc-day` queries one UTC calendar day (`start_date == end_date`). Omit it for a Chicago civil day (two inclusive UTC dates, then hours outside Chicago are dropped).
+
+## GCS run archive
+
+**Automatic:** each successful `run_*.py` (collect + enrich/BQ + validate, no stop reason / API failures) uploads that pipeline’s date CSV via `common/scripts/upload_run_csv.py`. Object name = runner `--date`. Same date overwrites. Opt out: `--skip-gcs`.
+
+**Manual** (backfill a date that already has a CSV):
+
+```bash
+python common/scripts/upload_run_csv.py \
+  --pipeline content_creators \
+  --date YYYY-MM-DD \
+  --file p1_content_creators/box/YYYY-MM-DD.csv
+```
+
+Use `--pipeline news` or `keyword` and the matching `p2_news/box/` or `p3_keywords/box/` path (or another non-empty CSV for that run). Server needs the existing enrichment GCP credentials; see [`SERVER.md`](SERVER.md).

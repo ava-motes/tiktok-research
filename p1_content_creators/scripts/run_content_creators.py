@@ -101,6 +101,11 @@ def main() -> int:
         help="Do not call research/user/info after video/query (saves ~1 "
         "request per handle; use when daily quota is tight)",
     )
+    parser.add_argument(
+        "--skip-gcs",
+        action="store_true",
+        help="Do not archive the completed CSV to GCS",
+    )
     args = parser.parse_args()
 
     require_collection_server()
@@ -337,7 +342,20 @@ def main() -> int:
         return 1
     if enrich_rc not in (0, None):
         return enrich_rc
-    return 0 if val_rc == 0 else val_rc
+    if val_rc != 0:
+        return val_rc
+
+    from tiktok.gcs_archive import upload_run_csv_after_success
+
+    return upload_run_csv_after_success(
+        run_fn=_run,
+        pipeline_id=PIPELINE_CONTENT_CREATORS,
+        research_date=args.date,
+        cfg=cfg,
+        pipeline=pipeline,
+        csv_paths=totals.get("csv_paths") or [],
+        skip=args.skip_gcs,
+    )
 
 
 if __name__ == "__main__":

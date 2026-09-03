@@ -89,6 +89,11 @@ def main() -> int:
         help="Query one UTC calendar day: TikTok start_date == end_date "
         "(keep all returned videos; no Chicago hour filter)",
     )
+    parser.add_argument(
+        "--skip-gcs",
+        action="store_true",
+        help="Do not archive the completed CSV to GCS",
+    )
     args = parser.parse_args()
 
     require_collection_server()
@@ -303,7 +308,20 @@ def main() -> int:
         return 1
     if enrich_rc not in (0, None):
         return enrich_rc
-    return 0 if val_rc == 0 else val_rc
+    if val_rc != 0:
+        return val_rc
+
+    from tiktok.gcs_archive import upload_run_csv_after_success
+
+    return upload_run_csv_after_success(
+        run_fn=_run,
+        pipeline_id=PIPELINE_NEWS,
+        research_date=args.date,
+        cfg=cfg,
+        pipeline=pipeline,
+        csv_paths=totals.get("csv_paths") or [],
+        skip=args.skip_gcs,
+    )
 
 
 if __name__ == "__main__":

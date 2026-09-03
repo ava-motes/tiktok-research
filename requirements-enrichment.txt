@@ -9,9 +9,10 @@ opencv-python-headless>=4.8.0,<4.12
 # Preferred local Whisper (CPU). Falls back to OpenAI Whisper API if missing.
 faster-whisper>=1.0.0
 
-# Google Cloud Vision OCR + BigQuery sync
+# Google Cloud Vision OCR + BigQuery sync + GCS run archive
 google-cloud-vision>=3.7.0
 google-cloud-bigquery>=3.14.0
+google-cloud-storage>=2.14.0
 
 # Emoji CLDR demojize / names
 emoji>=2.10.0

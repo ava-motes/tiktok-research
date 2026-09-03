@@ -124,6 +124,10 @@ box:
     content_creators: p1_content_creators/box
     news: p2_news/box
     keyword: p3_keywords/box
+gcs:
+  run_archive_bucket: tiktok_research_3
+  # Objects: gs://tiktok_research_3/{p1_content_creators|p2_news|p3_keywords}/YYYY-MM-DD.csv
+  # YYYY-MM-DD is the runner --date (research date). Same date overwrites.
 paths:
   database: data/tiktok_research.db
   raw_responses: data/raw

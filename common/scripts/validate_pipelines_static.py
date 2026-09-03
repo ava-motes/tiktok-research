@@ -1077,6 +1077,79 @@ def _run_checks() -> None:
         _fail("22. P3 e2e", "P1/P2 collector now treats partial checkpoints")
     print("PASS 22. P3 enrichment/BQ isolation and abort-on-429/auth")
 
+    from tiktok.gcs_archive import (
+        DEFAULT_BUCKET,
+        PIPELINE_GCS_PREFIX,
+        gcs_object_uri,
+        validate_local_csv,
+        validate_research_date,
+    )
+
+    if DEFAULT_BUCKET != "tiktok_research_3":
+        _fail("23. GCS archive", DEFAULT_BUCKET)
+    if PIPELINE_GCS_PREFIX.get("content_creators") != "p1_content_creators":
+        _fail("23. GCS archive", "P1 prefix")
+    if PIPELINE_GCS_PREFIX.get("news") != "p2_news":
+        _fail("23. GCS archive", "P2 prefix")
+    if PIPELINE_GCS_PREFIX.get("keyword") != "p3_keywords":
+        _fail("23. GCS archive", "P3 prefix")
+    uri = gcs_object_uri("content_creators", "2026-09-01")
+    if uri != "gs://tiktok_research_3/p1_content_creators/2026-09-01.csv":
+        _fail("23. GCS archive", uri)
+    if "2026-09-03" in uri:
+        _fail("23. GCS archive", "object used upload timestamp")
+    try:
+        validate_research_date("20260901")
+        _fail("23. GCS archive", "accepted non-ISO date")
+    except ValueError:
+        pass
+    with tempfile.TemporaryDirectory() as tmp:
+        missing = os.path.join(tmp, "nope.csv")
+        try:
+            validate_local_csv(missing)
+            _fail("23. GCS archive", "accepted missing CSV")
+        except FileNotFoundError:
+            pass
+        empty = os.path.join(tmp, "empty.csv")
+        Path(empty).write_text("", encoding="utf-8")
+        try:
+            validate_local_csv(empty)
+            _fail("23. GCS archive", "accepted empty CSV")
+        except ValueError:
+            pass
+        ok = os.path.join(tmp, "ok.csv")
+        Path(ok).write_text("video_id,caption\nabc,hello\n", encoding="utf-8")
+        if validate_local_csv(ok) != 1:
+            _fail("23. GCS archive", "header+row should count 1 data row")
+    up_src = (ROOT / "common/scripts/upload_run_csv.py").read_text(encoding="utf-8")
+    if "gcs_object_uri" not in up_src and "upload_run_csv(" not in up_src:
+        _fail("23. GCS archive", "CLI does not call shared uploader")
+    gcs_mod = (ROOT / "common/tiktok/gcs_archive.py").read_text(encoding="utf-8")
+    if "common/scripts/upload_run_csv.py" not in gcs_mod:
+        _fail("23. GCS archive", "runners helper does not invoke shared CLI")
+    for rel, token in (
+        (
+            "p1_content_creators/scripts/run_content_creators.py",
+            "PIPELINE_CONTENT_CREATORS",
+        ),
+        ("p2_news/scripts/run_news.py", "PIPELINE_NEWS"),
+        ("p3_keywords/scripts/run_keyword.py", "PIPELINE_KEYWORD"),
+    ):
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        if "upload_run_csv_after_success" not in src:
+            _fail("23. GCS archive", f"{rel} does not archive to GCS")
+        if src.find("upload_run_csv_after_success") < src.find("validate_exit"):
+            _fail("23. GCS archive", f"{rel} uploads before validation summary")
+        fail_gate = src.rfind('if val_rc != 0:')
+        upload_at = src.find("upload_run_csv_after_success")
+        if fail_gate < 0 or upload_at < fail_gate:
+            _fail("23. GCS archive", f"{rel} uploads before val_rc success gate")
+        if "google.cloud.storage" in src or "gcloud storage cp" in src:
+            _fail("23. GCS archive", f"{rel} duplicated GCS upload code")
+        if token not in src:
+            _fail("23. GCS archive", f"{rel} missing {token}")
+    print("PASS 23. GCS archive shared, date-named, success-only")
+
 
 if __name__ == "__main__":
     try:
