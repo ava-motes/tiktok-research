@@ -1,0 +1,131 @@
+tiktok:
+  base_url: https://open.tiktokapis.com/v2
+date_range:
+  start: '20260101'
+  end: today
+# Sample-only groups for --sample. Full production lists live in each pipeline folder.
+handle_groups:
+  batch_test:
+  - underthedesknews
+  - aaronparnas1
+  news:
+  - 6abcactionnews
+  - nbcnewyork
+  news_sample:
+  - 6abcactionnews
+  - nbcnewyork
+defaults:
+  pull_videos: batch_test
+  pull_user_info: batch_test
+  classify_videos: batch_test
+  classify_accounts: batch_test
+research:
+  timezone: America/Chicago
+collection_pipelines:
+  content_creators:
+    id: content_creators
+    description: Daily TikTok collection for tracked content creators (526 unique)
+    pipeline_root: p1_content_creators
+    handle_group: newsfluencer_combined
+    handle_file: p1_content_creators/config/newsfluencer_combined.txt
+    sample_handle_group: batch_test
+    export_dir: p1_content_creators/results/csv
+    summary_dir: p1_content_creators/results/summaries
+    parquet_dir: p1_content_creators/results/parquet
+    log_dir: p1_content_creators/logs
+    box_dir: p1_content_creators/box
+    checkpoint_dir: p1_content_creators/logs/checkpoints
+    api_source: CONTENT_CREATOR_API
+    bigquery_table: content_creators
+    client_key_env: CONTENT_CREATOR_TIKTOK_CLIENT_KEY
+    client_secret_env: CONTENT_CREATOR_TIKTOK_CLIENT_SECRET
+  news:
+    id: news
+    description: Daily TikTok collection for institutional news/journalism accounts (137 unique)
+    pipeline_root: p2_news
+    handle_group: news
+    handle_file: p2_news/config/news_accounts.txt
+    sample_handle_group: news_sample
+    export_dir: p2_news/results/csv
+    summary_dir: p2_news/results/summaries
+    parquet_dir: p2_news/results/parquet
+    log_dir: p2_news/logs
+    box_dir: p2_news/box
+    checkpoint_dir: p2_news/logs/checkpoints
+    api_source: NEWS_API
+    bigquery_table: news
+    require_dedicated_credentials: true
+    client_key_env: NEWS_API_CLIENT_KEY
+    client_secret_env: NEWS_API_CLIENT_SECRET
+  keyword:
+    id: keyword
+    description: Daily keyword search from march_news_keywords.txt (263 terms)
+    pipeline_root: p3_keywords
+    keyword_file: p3_keywords/config/march_news_keywords.txt
+    keyword_source: march_news_keywords
+    sample_keywords:
+      - news
+      - trump
+      - tsa
+      - ice
+      - netanyahu
+    max_videos_per_keyword: 0
+    exclude_handle_files:
+      pipeline_1: p1_content_creators/config/newsfluencer_combined.txt
+      pipeline_2: p2_news/config/news_accounts.txt
+    export_dir: p3_keywords/results/csv
+    summary_dir: p3_keywords/results/summaries
+    parquet_dir: p3_keywords/results/parquet
+    log_dir: p3_keywords/logs
+    box_dir: p3_keywords/box
+    checkpoint_dir: p3_keywords/logs/checkpoints
+    api_source: KEYWORD_SEARCH_API
+    bigquery_table: keyword
+    require_dedicated_credentials: true
+    client_key_env: KEYWORD_SEARCH_API_CLIENT_KEY
+    client_secret_env: KEYWORD_SEARCH_API_CLIENT_SECRET
+keywords:
+  default_source: march_news_keywords
+  sources:
+    march_news_keywords:
+      description: Canonical Pipeline 3 list (263 terms)
+      path: p3_keywords/config/march_news_keywords.txt
+classification:
+  openai_model: gpt-4o-mini
+  video_batch_size: 20
+  account_batch_size: 10
+  temperature: 0
+transcription:
+  model_size: base
+  audio_dir: audio
+  compute_type: int8
+  download_delay: 1.5
+enrichment:
+  max_ocr_frames: 12
+  ocr_percentiles: [0.0, 0.25, 0.50, 0.75, 1.0]
+  whisper_backend: openai
+  whisper_model: base
+  gcp_project: cfme-mediaengagment-prod
+  bigquery_dataset: tiktok_research
+  sync_bigquery: false
+  vision_enabled: true
+box:
+  shared_link: https://utexas.box.com/s/drgh994ljt4q9c8asvizbg9mmkosif41
+  parent_folder_id: "414371063670"
+  pipeline_folders:
+    content_creators: p1_content_creators
+    news: p2_news
+    keyword: p3_key_words
+  pipeline_folder_ids:
+    content_creators: "414374871766"
+    news: "414374596800"
+    keyword: "414375644549"
+  pipeline_local_dirs:
+    content_creators: p1_content_creators/box
+    news: p2_news/box
+    keyword: p3_keywords/box
+paths:
+  database: data/tiktok_research.db
+  raw_responses: data/raw
+  exports: data/exports
+  checkpoints: data/checkpoints

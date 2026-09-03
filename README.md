@@ -1,115 +1,47 @@
-# TikTok Research + Enrichment Pipeline
+# TikTok research
 
-Collects TikTok Research API v2 data and enriches it (Whisper transcription,
-Google Cloud Vision OCR, emoji extraction) into a single BigQuery analytics
-table for research.
-
-**Pipeline version:** `enrichment-v5.0` (Git tag `v5.0`, core architecture frozen).
-
-> **Golden rule:** all TikTok collection and enrichment run **only** on the
-> Moody server `comm-cme-p01`. Your laptop is for editing code, SSH, and browsing
-> BigQuery — never run production collection/enrichment locally.
-
----
-
-## Architecture
+Three isolated collection pipelines. Open a folder to see which one it is:
 
 ```text
-TikTok Research API
-        │
-        ▼
-Collection (comm-cme-p01)  →  SQLite staging
-        │
-        ├─ Whisper transcription
-        ├─ Google Vision OCR
-        └─ Emoji extraction
-        │
-        ▼
-BigQuery: tiktok_video_enriched  (+ tiktok_pipeline_logs)
-        │
-        ▼
-Production validation  →  research CSV / Parquet export
+p1_content_creators/   client …861   BigQuery content_creators   526 handles
+p2_news/               client …443   BigQuery news               137 handles
+p3_keywords/           client …993   BigQuery keyword            263 terms
+common/                shared API, enrichment, Box, server
+archive/               old v5.0 / legacy / discovery / eval
 ```
 
-- **Analytics source of truth (v5.0):** BigQuery
-  `cfme-mediaengagment-prod.tiktok_research.tiktok_video_enriched`.
-- **Pipeline 1 (additive):** `tiktok_content_creators` (do not drop the v5.0 table).
-- **Staging:** SQLite `data/tiktok_research.db` on the server.
+**Golden rule:** collection and enrichment run only on Moody server `comm-cme-p01`. The laptop is for editing, Git, SSH, and BigQuery. Never download TikTok media locally. Secrets live in the server `.env` — never commit them, and never copy that file onto a laptop.
 
----
+Each pipeline has its own API credentials, input list, BigQuery table, results, logs, and Box folder. None of them write `tiktok_video_enriched`.
 
-## Documentation map
+Shared enrichment lives in `common/scripts/enrich_pipeline.py`. Each runner calls it with **only that pipeline’s** `--pipeline` value (`content_creators`, `news`, or `keyword`) so credentials and BigQuery tables stay isolated without duplicating worker code.
 
-| Doc | Purpose |
-|-----|---------|
-| [`docs/SCHEMA.md`](docs/SCHEMA.md) | **Canonical** tables, columns, naming map, source-of-truth rules |
-| [`docs/SCRIPTS.md`](docs/SCRIPTS.md) | Which scripts are production vs migration vs eval |
-| [`docs/PIPELINE_ARCHITECTURE.md`](docs/PIPELINE_ARCHITECTURE.md) | System map + column meanings |
-| [`docs/ENRICHMENT.md`](docs/ENRICHMENT.md) | Server + GCP enrichment setup |
-| [`docs/AVA_ONBOARDING.md`](docs/AVA_ONBOARDING.md) | Step-by-step onboarding (VPN → server → BigQuery) |
-| [`RELEASE.md`](RELEASE.md) | v5.0 milestone / release notes |
-| [`CLAUDE.md`](CLAUDE.md) | Conventions for AI assistants working in this repo |
+## Canonical daily run (server)
 
----
-
-## Canonical commands (run on the server)
+Do not treat `--sample` as the daily job. Smoke tests stay in each pipeline README.
 
 ```bash
 ssh cme-p01
 cd ~/tiktok_research
 source .venv/bin/activate
 set -a && source .env && set +a
-export PATH="$HOME/bin:$PATH"     # ffmpeg lives in ~/bin on this VM
+export PATH="$HOME/bin:$PATH"
+
+DATE=YYYY-MM-DD   # lagged research date
 ```
 
-| Task | Command |
-|------|---------|
-| Sanity check env/API | `python scripts/test_setup.py` |
-| Ensure BQ schema | `python scripts/enrich_pipeline.py --ensure-bq-schema` |
-| Inspect BQ schema | `python scripts/enrich_pipeline.py --inspect-bq-schema` |
-| Small enrichment test | `python scripts/enrich_pipeline.py --group batch_test --limit 6 --sync-bigquery` |
-| Incremental enrich + validate | `python scripts/enrich_pipeline.py --group batch_test --limit 50 --incremental --sync-bigquery --validate` |
-| Production run | `python scripts/enrich_pipeline.py --production --group <group>` |
-| Production validation | `python scripts/run_production_validation.py` |
-| Fix BQ consistency | `python scripts/fix_bq_consistency.py` |
-| Export research dataset | `python scripts/export_research_dataset.py` |
+| Pipeline | Production command |
+|----------|-------------------|
+| P1 | `python p1_content_creators/scripts/run_content_creators.py --date "$DATE" --utc-day --skip-whisper --continue-on-failures --skip-user-info` |
+| P2 | `python p2_news/scripts/run_news.py --date "$DATE" --utc-day --skip-whisper` |
+| P3 | `python p3_keywords/scripts/run_keyword.py --date "$DATE" --sample --utc-day --skip-whisper` |
 
-Handle groups (`sample`, `test`, `complete`, `batch_test`, ...) are defined in
-[`config.yaml`](config.yaml). `enrich_pipeline.py` (without `--pipeline`) remains
-the v5.0 orchestrator for `tiktok_video_enriched`.
+P3’s daily default is the five-term sample (`news, trump, tsa, ice, netanyahu`). Drop `--sample` only after that sample is reviewed — the full 263-term list can exhaust the keyword quota.
 
-**Pipeline 1** (content creators) is additive. Documented in
-[`docs/COLLECTION_PIPELINES.md`](docs/COLLECTION_PIPELINES.md). Server sample:
+Sequential wrapper (same flags): `bash common/scripts/run_daily_all.sh`
 
-```bash
-python scripts/run_content_creators.py --date 2026-08-25 --sample
-```
+Do **not** commit this layout until the reorganized paths have been tested on `comm-cme-p01`. After pulling to the server, keep the existing server `.env` in place.
 
-Pipelines 2 and 3 are **not** production-ready.
+Static check (laptop-safe, no API): `python common/scripts/validate_pipelines_static.py`
 
----
-
-## Requirements
-
-```bash
-pip install -r requirements.txt              # core collection
-pip install -r requirements-enrichment.txt   # Whisper / Vision / BigQuery / export
-```
-
-`requirements-ocr.txt` (EasyOCR/torch) is only for the optional research OCR eval
-stack; it is not part of the production pipeline.
-
----
-
-## Legacy code
-
-Pre-v5.0 CSV-only scripts have been moved to [`legacy/`](legacy/) and are not part
-of the production pipeline. See [`legacy/README.md`](legacy/README.md).
-
----
-
-## Secrets
-
-Credentials live only in the server `.env` and GCP IAM. Never commit `.env` or
-service-account JSON keys. See [`.env.example`](.env.example) for the required
-keys.
+Docs: [`docs/PIPELINES.md`](docs/PIPELINES.md) · [`docs/SCHEMA.md`](docs/SCHEMA.md) · [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/SERVER.md`](docs/SERVER.md)

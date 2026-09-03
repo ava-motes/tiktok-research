@@ -1,10 +1,10 @@
 # Data schema and column reference
 
 Canonical reference for every dataset, table, and column in the TikTok research
-pipeline, plus the cross-layer naming map. Pipeline version: **`enrichment-v5.0`**.
+pipelines. Active tables: **`content_creators`**, **`news`**, **`keyword`**.
 
 If a column name here disagrees with a script, **this document plus
-[`tiktok/enrichment/bigquery_loader.py`](../tiktok/enrichment/bigquery_loader.py)
+[`common/enrichment/bigquery_loader.py`](../common/enrichment/bigquery_loader.py)
 (`BQ_SCHEMAS`, `RESEARCH_COLUMNS`, `OPERATIONAL_COLUMNS`) are the source of truth.**
 
 ---
@@ -13,10 +13,11 @@ If a column name here disagrees with a script, **this document plus
 
 | Layer | Location | Role |
 |-------|----------|------|
-| Raw JSONL | `data/raw/{videos,users}/<handle>.jsonl` (server) | Verbatim API responses |
-| SQLite | `data/tiktok_research.db` (server `comm-cme-p01`) | Collection + enrichment **staging** |
-| BigQuery | `cfme-mediaengagment-prod.tiktok_research` | **Production analytics (source of truth)** |
-| Exports | `data/exports/*.csv` / `*.parquet` (server) | Researcher deliverables |
+| Raw JSONL | `data/raw/{videos,users}/` (server, gitignored) | Verbatim API responses |
+| SQLite | `data/tiktok_research.db` (server) | Collection + enrichment **staging** |
+| BigQuery | `cfme-mediaengagment-prod.tiktok_research` | **Analytics source of truth** |
+| P1/P2/P3 exports | `p1_content_creators/results/` · `p2_news/results/` · `p3_keywords/results/` | CSV / summaries |
+| Box copies | `p1_content_creators/box/` · `p2_news/box/` · `p3_keywords/box/` | Daily `YYYY-MM-DD.csv` |
 
 > The laptop copy of `data/tiktok_research.db` (if present) holds **collection
 > tables only**; enrichment staging tables exist on the server. Do not treat
@@ -25,16 +26,17 @@ If a column name here disagrees with a script, **this document plus
 ```mermaid
 flowchart TD
   api[TikTok_Research_API] --> raw[data_raw_jsonl]
-  api --> videos[SQLite_videos_users_comments]
-  videos --> vt[video_transcripts]
-  videos --> vo[video_ocr]
-  videos --> ve[video_emojis]
-  vt --> enriched[BQ_tiktok_video_enriched]
-  vo --> enriched
-  ve --> enriched
-  videos --> enriched
-  enriched --> logs[BQ_tiktok_pipeline_logs]
-  enriched --> export[research_CSV_Parquet]
+  api --> videos[SQLite_videos_users]
+  videos --> enrich[Whisper_Vision_emoji]
+  enrich --> p1[BQ_content_creators]
+  enrich --> p2[BQ_news]
+  enrich --> p3[BQ_keyword]
+  videos --> p1
+  videos --> p2
+  videos --> p3
+  p1 --> out[pipeline_results_and_Box]
+  p2 --> out
+  p3 --> out
 ```
 
 ---
@@ -51,16 +53,16 @@ use **only** the columns marked SoT below.
 | Emoji | BQ `emoji_characters` / `emoji_descriptions` / `emoji_category` | — |
 | Saves metric | BQ `favorite_count` | SQLite `save_count`, API `favorites_count` (same value, different names) |
 | Creator handle | BQ `creator_username` | SQLite `username`, export CSV `handle`, legacy `creator_handle` |
-| Research export | `scripts/export_research_dataset.py` (from BQ) | `scripts/export_csv.py` (from SQLite, legacy multimodal) |
+| Research export | per-pipeline `results/` + Box CSV | archived `archive/v5/scripts/export_research_dataset.py` (`tiktok_video_enriched`) |
 
 ---
 
 ## 3. SQLite tables
 
-Defined in [`tiktok/db.py`](../tiktok/db.py) (collection) and
-[`tiktok/enrichment/store.py`](../tiktok/enrichment/store.py) (enrichment staging).
+Defined in [`common/tiktok/db.py`](../common/tiktok/db.py) (collection) and
+[`common/enrichment/store.py`](../common/enrichment/store.py) (enrichment staging).
 
-### Collection tables (`tiktok/db.py`)
+### Collection tables (`common/tiktok/db.py`)
 
 | Table | PK | Purpose |
 |-------|-----|---------|
@@ -98,7 +100,7 @@ Defined in [`tiktok/db.py`](../tiktok/db.py) (collection) and
 `transcript_source`, `model_name`, `audio_path`, `duration_seconds`,
 `processing_timestamp`.
 
-### Enrichment staging tables (`tiktok/enrichment/store.py`)
+### Enrichment staging tables (`common/enrichment/store.py`)
 
 These live on the server and feed the BigQuery upsert.
 
@@ -120,12 +122,14 @@ These live on the server and feed the BigQuery upsert.
 ## 4. BigQuery objects
 
 Project `cfme-mediaengagment-prod`, dataset `tiktok_research`. Schemas defined in
-[`tiktok/enrichment/bigquery_loader.py`](../tiktok/enrichment/bigquery_loader.py)
+[`common/enrichment/bigquery_loader.py`](../common/enrichment/bigquery_loader.py)
 (`BQ_SCHEMAS`).
 
-### `tiktok_video_enriched` — production analytics (one row per `video_id`)
+### Shared research columns (P1 / P2 / P3)
 
-Upserted via `DELETE` by `video_id` + `INSERT` (`sync_video_from_sqlite`).
+The three pipeline tables share this research column set (`RESEARCH_COLUMNS`).
+The archived v5 table `tiktok_video_enriched` used the same names; it is **not**
+an active destination.
 
 **Research columns (`RESEARCH_COLUMNS`):**
 
@@ -183,7 +187,10 @@ Upserted via `DELETE` by `video_id` + `INSERT` (`sync_video_from_sqlite`).
 `start_time`, `end_time`, `duration_seconds`, `error_type`, `error_message`,
 `worker_hostname`, `created_at`.
 
-### `tiktok_content_creators` — Pipeline 1 research table (additive)
+`tiktok_pipeline_logs` also stores optional `pipeline_id` and `collection_source`
+(additive columns; v5.0 rows may leave them empty).
+
+### `content_creators` — Pipeline 1 research table
 
 Created by `ensure_content_creators_table()`. Does **not** replace
 `tiktok_video_enriched`. Identity is `video_id`. Upsert via
@@ -193,24 +200,59 @@ Provenance: `collection_source=content_creators`, `pipeline_id=content_creators`
 `api_source=CONTENT_CREATOR_API`, `collection_date` (America/Chicago civil date),
 `collection_window_start` / `collection_window_end` (UTC).
 
-Field names follow the three-pipeline schema (`likes`, `verified_status`,
-`ocr_status`, `emoji_count`, …). See `BQ_SCHEMAS["tiktok_content_creators"]`.
+`collection_status` is `ok` for collected videos and `api_failed` for handles
+whose `video/query` exhausted retries (HTTP 500 `internal_error`, etc.). Failed
+handles use a synthetic `video_id` `handle_fail:{YYYY-MM-DD}:{handle}` so they
+can be upserted without a TikTok video. Video analyses should filter
+`collection_status = 'ok'` (or `STARTS_WITH(video_id, 'handle_fail:') = FALSE`).
+`api_error_code` stores the Research API error code on failure rows (blank on
+video rows). Daily Box CSVs and the P1/P2 copy-paste pulls in
+[`p1_content_creators/sql/content_creators.sql`](../p1_content_creators/sql/content_creators.sql) include both
+row types, with failure stubs listed first and status columns on the left.
 
-`tiktok_news_accounts` and `tiktok_keyword_search` are **not** created yet.
+Field names follow the three-pipeline schema (`likes`, `verified_status`,
+`ocr_status`, `emoji_count`, …). See `BQ_SCHEMAS["content_creators"]`.
+
+### `news` — Pipeline 2 research table
+
+Created by `ensure_news_table()`. Same core fields as
+`content_creators`. Identity is `video_id`. Upsert via
+`sync_news_account_video`. Does **not** write Pipeline 2 rows to
+`tiktok_video_enriched` or `content_creators`.
+
+Provenance: `collection_source=news`, `pipeline_id=news`,
+`api_source=NEWS_API`.
+
+Handle list: `p2_news/config/news_accounts.txt` (137 unique from
+Institutional Handles 08252026.xlsx).
+
+### `keyword` — Pipeline 3 research table
+
+Created by `ensure_keyword_table()`. Same core fields as
+`content_creators`, plus `matched_keywords` (`ARRAY<STRING>`: every
+keyword that matched this `video_id`). Identity is `video_id`. Upsert via
+`sync_keyword_search_video`. Does **not** write Pipeline 3 rows to
+`tiktok_video_enriched`, `content_creators`, or `news`.
+
+Provenance: `collection_source=keyword`, `pipeline_id=keyword`,
+`api_source=KEYWORD_SEARCH_API`.
+
+Canonical keywords: `p3_keywords/config/march_news_keywords.txt` (263 terms).
+Sample: `news`, `trump`, `tsa`, `ice`, `netanyahu`.
 
 ### Monitoring views
 
-Defined in [`sql/monitoring_dashboard.sql`](../sql/monitoring_dashboard.sql):
+Defined in [`archive/v5/sql/monitoring_dashboard.sql`](../archive/v5/sql/monitoring_dashboard.sql):
 `v_enrichment_daily`, `v_enrichment_today`, `v_enrichment_failures`,
 `v_enrichment_quality`, `v_enrichment_duplicates`.
 
 ### Non-analytics / do-not-use
 
 - **Backup tables** `tiktok_video_enriched_backup_YYYYMMDD_HHMMSS` — created by
-  `scripts/rebuild_tiktok_video_enriched.py`; rebuild artifacts, not sources.
+  `archive/v5/scripts/rebuild_tiktok_video_enriched.py`; rebuild artifacts, not sources.
 - **Deprecated tables** `videos_raw`, `video_transcripts`, `video_ocr`,
   `video_emojis` (`LEGACY_BQ_TABLES`) — never written; drop via
-  [`sql/drop_legacy_bq_tables.sql`](../sql/drop_legacy_bq_tables.sql).
+  [`archive/v5/sql/drop_legacy_bq_tables.sql`](../archive/v5/sql/drop_legacy_bq_tables.sql).
 
 ---
 
@@ -253,26 +295,24 @@ Two export paths exist; they are intentionally different:
 
 | Export | Source | Columns |
 |--------|--------|---------|
-| `scripts/export_research_dataset.py` | BigQuery | Research subset (see below) |
-| `scripts/export_csv.py` | SQLite (legacy multimodal) | `handle`, `save_count`, legacy `transcript`, visual layers |
+| P1/P2/P3 Box + `results/` CSV | Pipeline BigQuery table | Full table fields (status columns first) |
+| `archive/v5/scripts/export_research_dataset.py` | archived `tiktok_video_enriched` | Research subset |
 
-`export_research_dataset.py` intentionally exports a **research subset** of
-`RESEARCH_COLUMNS` plus light status fields, and **omits** `comments_json`
-(empty until comments are collected) and ops latency/retry fields. This omission
-is deliberate and documented in the script header. When comment collection is
-enabled, add `comments_json` to that exporter's column list.
+The archived exporter intentionally omits `comments_json` (empty until comments
+are collected) and ops latency/retry fields. Active pipelines export via Box
+delivery (`common/tiktok/box_delivery.py`) and copy-paste SQL in each pipeline
+`sql/` folder.
 
 ---
 
 ## 7. Known gaps / caveats
 
-- `comments` is empty in v5.0 → BQ `comments_json` is always `[]`. Populate SQLite
+- `comments` is empty → BQ `comments_json` is always `[]`. Populate SQLite
   `comments` before treating it as a research deliverable.
 - `video_ocr` (Vision) is the only OCR path that reaches BQ. The EasyOCR path
-  (`scripts/enrich_videos_with_ocr.py`, writing `videos.onscreen_text`) is
+  (`archive/evaluation/`, writing `videos.onscreen_text`) is
   research-local and does not populate `ocr_text`.
-- `_ensure_table` only **adds** missing BQ columns; it never drops extras. Legacy
-  columns can linger until `rebuild_tiktok_video_enriched.py` is run.
+- `_ensure_table` only **adds** missing BQ columns; it never drops extras.
 - Do **not** re-run the `create_time` ← `posted_at` alias backfill in
-  `scripts/migrate_bq_simplified_architecture.py`; `create_time` is not in the
+  `archive/v5/scripts/migrate_bq_simplified_architecture.py`; `create_time` is not in the
   current BQ schema.

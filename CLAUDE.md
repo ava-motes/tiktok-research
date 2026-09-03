@@ -1,42 +1,27 @@
 # Project conventions (for AI assistants)
 
-This project collects TikTok Research API v2 data and enriches it into BigQuery.
-Current pipeline version: **`enrichment-v5.0`**. Start with
-[`README.md`](README.md) and [`docs/SCHEMA.md`](docs/SCHEMA.md).
+Start with [`README.md`](README.md). Active work is **P1 / P2 / P3 only**. Do not revive `tiktok_video_enriched` unless explicitly asked.
 
 ## Golden rules
 
-- **Server-only processing.** All TikTok collection and enrichment run on the
-  Moody server `comm-cme-p01` (via SSH). The laptop is for editing code, SSH, and
-  browsing BigQuery. Never run production collection/enrichment locally, and never
-  download TikTok media to a laptop.
-- **Secrets** live in the server `.env` and GCP IAM. Credentials are read from
-  environment variables (never hardcode). Never commit `.env` or service-account
-  JSON keys.
-- **Auth:** TikTok Research API uses OAuth 2.0 client-credentials flow; use the
-  `requests` library. Always handle pagination and rate limiting.
+- **Server-only processing.** Collection and enrichment run on `comm-cme-p01`. Laptop: edit, Git, SSH, BigQuery.
+- **Secrets** live in the server `.env` and GCP IAM. Never commit `.env` or service-account JSON.
+- **Do not mix credentials.** P1 = `TIKTOK_CLIENT_*` / `CONTENT_CREATOR_TIKTOK_*` (client …861). P2 = `NEWS_API_*` only (…443). P3 = `KEYWORD_SEARCH_API_*` only (…993).
+- **Do not mix BigQuery tables.** P1 → `content_creators`, P2 → `news`, P3 → `keyword`. Never write `tiktok_video_enriched` from an active pipeline.
+- **Do not duplicate shared code.** API, SQLite, enrichment, Box, server guard live under `common/`.
+- **Do not import `archive/`** from active pipelines.
 
-## Architecture (do not redesign without explicit request)
+## Layout
 
+```text
+p1_content_creators/   P1 scripts, 526-handle list, results, logs, Box copies
+p2_news/               P2 scripts, 137-handle list, results, logs, Box copies
+p3_keywords/           P3 scripts, 263-keyword list, results, logs, Box copies
+common/                api/, tiktok/, enrichment/, scripts/, server/, config.yaml
+archive/               v5/, legacy/, discovery/, evaluation/, deprecated/
+docs/                  SCHEMA, ARCHITECTURE, SERVER, PIPELINES
 ```
-TikTok Research API → SQLite staging (server) → Whisper + Vision OCR + emoji
-  → BigQuery tiktok_video_enriched (+ tiktok_pipeline_logs) → validation → export
-```
 
-- **Analytics source of truth:** `cfme-mediaengagment-prod.tiktok_research.tiktok_video_enriched`.
-- **Canonical orchestrator:** `scripts/enrich_pipeline.py` (use `--production` for daily runs).
-- **Schema source of truth:** `tiktok/enrichment/bigquery_loader.py`
-  (`BQ_SCHEMAS`, `RESEARCH_COLUMNS`, `OPERATIONAL_COLUMNS`) + `docs/SCHEMA.md`.
-
-## Column / naming conventions
-
-- Follow the cross-layer naming map in [`docs/SCHEMA.md`](docs/SCHEMA.md)
-  (e.g. API `favorites_count` → SQLite `save_count` → BQ `favorite_count`;
-  BQ creator handle is `creator_username`).
-- Production transcript = BQ `whisper_transcript`; production OCR = BQ `ocr_text`.
-  Legacy `transcripts` / `videos.onscreen_text` / EasyOCR paths are not analytics.
-
-## Legacy
-
-Pre-v5.0 CSV-only scripts live in [`legacy/`](legacy/) and must not be used for
-production. New work goes through `scripts/` + the `tiktok/` package.
+Schema source of truth: `common/enrichment/bigquery_loader.py` + `docs/SCHEMA.md`.
+Pipeline registry: `common/tiktok/pipelines.py` + `common/config.yaml`.
+Canonical enrichment entry: `common/scripts/enrich_pipeline.py` with **that pipeline’s** `--pipeline content_creators|news|keyword` only. Do not duplicate the workers into pipeline folders.

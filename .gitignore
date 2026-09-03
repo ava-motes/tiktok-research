@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+box_oauth.json
+data/box_oauth.json
 
 # Python
 venv/
@@ -18,13 +20,14 @@ __pycache__/
 .vscode/
 .idea/
 
-# Local data, DBs, media, exports (never commit)
+# Local data, DBs, media (never commit)
 data/
 audio/
 *.db
 *.sqlite
 *.sqlite3
 *.csv
+!archive/discovery/config/*.csv
 *.parquet
 *.mp4
 *.wav
@@ -32,8 +35,16 @@ audio/
 *.webm
 *.m4a
 
-# Logs / temp outputs
-logs/
+# Pipeline outputs (keep folder placeholders)
+**/results/csv/*
+**/results/parquet/*
+**/results/summaries/*
+**/logs/**
+**/box/*
+!**/.gitkeep
+!**/logs/checkpoints/.gitkeep
+
+# Logs / temp
 *.log
 *.tmp
 *.temp

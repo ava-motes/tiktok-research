@@ -1,0 +1,7 @@
+# P3 UTC 2026-08-15 only. Uncapped runs still use this six-term file (not the 263-term list).
+trump
+war
+iran
+indiana
+dead
+democrats
