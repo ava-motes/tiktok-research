@@ -28,6 +28,7 @@ class Config:
     tiktok_client_key: str
     tiktok_client_secret: str
     openai_api_key: str
+    openai_base_url: str = ""
 
     keywords: dict = field(default_factory=dict)
     collection_pipelines: dict = field(default_factory=dict)
@@ -113,6 +114,7 @@ def load_config(config_path: str = "common/config.yaml") -> Config:
         tiktok_client_key=(os.environ.get("TIKTOK_CLIENT_KEY") or "").strip(),
         tiktok_client_secret=(os.environ.get("TIKTOK_CLIENT_SECRET") or "").strip(),
         openai_api_key=(os.environ.get("OPENAI_API_KEY") or "").strip(),
+        openai_base_url=(os.environ.get("OPENAI_BASE_URL") or "").strip(),
         keywords=raw.get("keywords") or {},
         collection_pipelines=raw.get("collection_pipelines") or {},
         research_timezone=(

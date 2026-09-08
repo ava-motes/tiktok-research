@@ -23,7 +23,7 @@ Required keys:
 - P1: `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` (optional `CONTENT_CREATOR_TIKTOK_*`)
 - P2: `NEWS_API_CLIENT_KEY` / `NEWS_API_CLIENT_SECRET`
 - P3: `KEYWORD_SEARCH_API_CLIENT_KEY` / `KEYWORD_SEARCH_API_CLIENT_SECRET`
-- Enrichment: `GOOGLE_APPLICATION_CREDENTIALS`, `GCP_PROJECT`, `OPENAI_API_KEY` (Whisper)
+- Enrichment: `GOOGLE_APPLICATION_CREDENTIALS`, `GCP_PROJECT`, Portkey Whisper via `OPENAI_API_KEY` + `OPENAI_BASE_URL=https://api.portkey.ai/v1` + `PORTKEY_PROVIDER` + `OPENAI_WHISPER_MODEL=whisper-1` (see `.env.example`)
 - Box (optional): `BOX_CLIENT_ID` / `BOX_CLIENT_SECRET`
 
 GCP project: `cfme-mediaengagment-prod`, dataset `tiktok_research`.
@@ -36,7 +36,7 @@ gs://tiktok_research_3/p2_news/YYYY-MM-DD.csv
 gs://tiktok_research_3/p3_keywords/YYYY-MM-DD.csv
 ```
 
-Console/admin access is the Ellery GCP account (`ellery.ellis@utexas.edu`). Daily uploads on `comm-cme-p01` use the server’s existing `GOOGLE_APPLICATION_CREDENTIALS` (enrichment worker). Do not add GCS keys to git or a laptop `.env`.
+Console/admin access is the Ellery GCP account (`ellery.ellis@utexas.edu`). Bucket read access for run CSVs (`roles/storage.objectViewer`): `ava.motes@utexas.edu`, `kendall@my.utexas.edu`, `naomijlevine@utexas.edu`, `nichiriu@utexas.edu`, `eq2248@utexas.edu`, `tstroud@austin.utexas.edu` (sign in with those Google accounts). Daily uploads on `comm-cme-p01` use the server’s existing `GOOGLE_APPLICATION_CREDENTIALS` (enrichment worker). Do not add GCS keys to git or a laptop `.env`.
 
 If the worker cannot write objects, grant it on this bucket once:
 

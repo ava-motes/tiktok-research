@@ -42,6 +42,47 @@ def whisper_model_name() -> str:
     return os.environ.get("WHISPER_MODEL", "base").strip() or "base"
 
 
+def portkey_provider() -> str:
+    """UT Portkey Model Catalog provider slug (x-portkey-provider), if set."""
+    return (
+        os.environ.get("PORTKEY_PROVIDER")
+        or os.environ.get("OPENAI_PORTKEY_PROVIDER")
+        or ""
+    ).strip()
+
+
+def openai_whisper_model() -> str:
+    """OpenAI/Portkey transcription model id (not faster-whisper size)."""
+    explicit = (os.environ.get("OPENAI_WHISPER_MODEL") or "").strip()
+    if explicit:
+        return explicit
+    base_url = (os.environ.get("OPENAI_BASE_URL") or "").strip().lower()
+    # UT Portkey CFME workspace: provider header + plain whisper-1.
+    # Catalog id @…/whisper-1 is listed but returns "invalid model ID" as model=.
+    if "portkey.ai" in base_url and portkey_provider():
+        return "whisper-1"
+    if "portkey.ai" in base_url:
+        return "@openai/whisper-1"
+    return "whisper-1"
+
+
+def openai_client():
+    """OpenAI SDK client; optional OPENAI_BASE_URL for Portkey / UT AI Gateway."""
+    from openai import OpenAI
+
+    kwargs: Dict[str, Any] = {}
+    api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    if api_key:
+        kwargs["api_key"] = api_key
+    base_url = (os.environ.get("OPENAI_BASE_URL") or "").strip()
+    if base_url:
+        kwargs["base_url"] = base_url
+    provider = portkey_provider()
+    if provider and "portkey.ai" in base_url.lower():
+        kwargs["default_headers"] = {"x-portkey-provider": provider}
+    return OpenAI(**kwargs)
+
+
 def transcribe_audio(video_id: str, audio_path: str) -> EnrichmentTranscript:
     """Convert audio to Whisper-safe format, transcribe, retry once on format errors."""
     prep = prepare_whisper_audio(audio_path)
@@ -147,22 +188,25 @@ def _transcribe_faster_whisper(video_id: str, audio_path: str) -> EnrichmentTran
 
 def _transcribe_openai(video_id: str, audio_path: str) -> EnrichmentTranscript:
     from enrichment.retry import with_retries
-    from tiktok.transcription.service import WhisperAPITranscriptionService
 
-    svc = WhisperAPITranscriptionService()
+    model = openai_whisper_model()
+    max_bytes = 25 * 1024 * 1024
 
     def _once() -> EnrichmentTranscript:
-        err: dict = {}
-        result = svc.transcribe(video_id=video_id, audio_path=audio_path, error_info=err)
-        if result is None:
-            raise RuntimeError(err.get("reason") or "openai_whisper_failed")
+        size = os.path.getsize(audio_path) if os.path.isfile(audio_path) else 0
+        if size > max_bytes:
+            raise RuntimeError("too_large")
+        client = openai_client()
+        with open(audio_path, "rb") as handle:
+            response = client.audio.transcriptions.create(model=model, file=handle)
+        text = (getattr(response, "text", None) or "").strip()
         return EnrichmentTranscript(
             video_id=video_id,
-            transcript=result.text or "",
-            language=result.language or "",
-            whisper_model=result.model_name or "openai-whisper-1",
+            transcript=text,
+            language=getattr(response, "language", None) or "",
+            whisper_model=f"openai-{model}",
             confidence=None,
-            duration_seconds=result.duration_seconds,
+            duration_seconds=None,
         )
 
     return with_retries(_once, attempts=3, label=f"whisper:{video_id}")

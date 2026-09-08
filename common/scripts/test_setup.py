@@ -76,10 +76,15 @@ def try_load_config(config_path: str) -> tuple[Optional[Any], Optional[str]]:
 
 
 def test_openai(api_key: str) -> Dict[str, Any]:
-    """Minimal OpenAI call: list models (no completion cost)."""
+    """Minimal OpenAI/Portkey call: list models (no completion cost)."""
     out: Dict[str, Any] = {"ok": False}
     try:
-        client = OpenAI(api_key=api_key)
+        kwargs: Dict[str, Any] = {"api_key": api_key}
+        base_url = (os.environ.get("OPENAI_BASE_URL") or "").strip()
+        if base_url:
+            kwargs["base_url"] = base_url
+            out["base_url"] = base_url
+        client = OpenAI(**kwargs)
         listed = client.models.list()
         first_id = listed.data[0].id if listed.data else None
         out["ok"] = True
