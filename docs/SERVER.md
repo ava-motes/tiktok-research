@@ -6,7 +6,28 @@ All TikTok collection and enrichment run on:
 cme-user1@comm-cme-p01.moody.utexas.edu:~/tiktok_research
 ```
 
-Laptop: edit code, Git, SSH, browse BigQuery. Never put TikTok media or production `.env` on a laptop.
+Laptop: edit code, git, SSH, browse BigQuery. Never put TikTok media or production `.env` on a laptop.
+
+## P1 → P2 daily automation (no clock time yet)
+
+On `comm-cme-p01` only. Sequential P1 then P2. P3 is not included. Whisper is skipped. GCS upload happens inside each runner after that pipeline completes (API handle failures allowed; enrich/BQ/CSV must succeed).
+
+```bash
+bash common/scripts/run_daily_p1_p2.sh --preflight
+bash common/scripts/run_daily_p1_p2.sh
+```
+
+Logs: `p1_content_creators/logs/p1_p2_daily_YYYY-MM-DD_*.log` plus `p1_daily_*` and `p2_news/logs/p2_daily_*`. JSON summary next to P1 summaries.
+
+The job computes the lagged research date (Chicago today minus `RESEARCH_LAG_DAYS`, default 2) unless `DATE=` is set. Do not hard-code today.
+
+**Schedule is not enabled.** Units live in `common/server/tiktok-p1-p2.service` and `tiktok-p1-p2.timer` (no `OnCalendar`). When a run time is provided, on the server only:
+
+```bash
+ON_CALENDAR='*-*-* HH:MM:00' bash common/server/install_p1_p2_schedule.sh --enable
+```
+
+That changes the timer only, not pipeline flags. Crontab placeholder: `common/server/crontab.p1_p2.example`.
 
 ## One-time setup
 
@@ -24,7 +45,6 @@ Required keys:
 - P2: `NEWS_API_CLIENT_KEY` / `NEWS_API_CLIENT_SECRET`
 - P3: `KEYWORD_SEARCH_API_CLIENT_KEY` / `KEYWORD_SEARCH_API_CLIENT_SECRET`
 - Enrichment: `GOOGLE_APPLICATION_CREDENTIALS`, `GCP_PROJECT`, Portkey Whisper via `OPENAI_API_KEY` + `OPENAI_BASE_URL=https://api.portkey.ai/v1` + `PORTKEY_PROVIDER` + `OPENAI_WHISPER_MODEL=whisper-1` (see `.env.example`)
-- Box (optional): `BOX_CLIENT_ID` / `BOX_CLIENT_SECRET`
 
 GCP project: `cfme-mediaengagment-prod`, dataset `tiktok_research`.
 

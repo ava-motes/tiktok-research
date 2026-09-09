@@ -139,3 +139,19 @@ def research_window(
 def today_research_date(timezone_name: str = DEFAULT_RESEARCH_TIMEZONE) -> str:
     tz = ZoneInfo(timezone_name or DEFAULT_RESEARCH_TIMEZONE)
     return datetime.now(tz).date().isoformat()
+
+
+def lagged_research_date(
+    lag_days: int = 2,
+    timezone_name: str = DEFAULT_RESEARCH_TIMEZONE,
+) -> str:
+    """Research calendar date ``lag_days`` before today in ``timezone_name``.
+
+    The Research API is typically 24–48 hours behind, so daily automation
+    uses lag 2 (not the server's clock date).
+    """
+    days = int(lag_days)
+    if days < 0:
+        raise ValueError(f"lag_days must be >= 0, got {lag_days!r}")
+    tz = ZoneInfo(timezone_name or DEFAULT_RESEARCH_TIMEZONE)
+    return (datetime.now(tz).date() - timedelta(days=days)).isoformat()

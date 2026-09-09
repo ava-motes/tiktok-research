@@ -243,7 +243,6 @@ class PipelineSpec:
     summary_dir: str = ""
     parquet_dir: str = ""
     log_dir: str = ""
-    box_dir: str = ""
     checkpoint_dir: str = ""
 
     def resolve_handles(self, cfg: Config, *, sample: bool) -> List[str]:
@@ -305,9 +304,6 @@ class PipelineSpec:
             cfg,
             self.checkpoint_dir or override or "data/checkpoints",
         )
-
-    def resolved_box_dir(self, cfg: Config) -> str:
-        return self.resolve_path(cfg, self.box_dir or self.export_dir)
 
     def resolved_log_dir(self, cfg: Config) -> str:
         return self.resolve_path(cfg, self.log_dir or "logs")
@@ -464,9 +460,6 @@ def get_pipeline(cfg: Config, pipeline_id: str) -> PipelineSpec:
     log_dir = raw.get("log_dir") or (
         os.path.join(pipeline_root, "logs") if pipeline_root else "logs"
     )
-    box_dir = raw.get("box_dir") or (
-        os.path.join(pipeline_root, "box") if pipeline_root else export_dir
-    )
     checkpoint_dir = raw.get("checkpoint_dir") or (
         os.path.join(pipeline_root, "logs", "checkpoints")
         if pipeline_root
@@ -499,6 +492,5 @@ def get_pipeline(cfg: Config, pipeline_id: str) -> PipelineSpec:
         summary_dir=summary_dir,
         parquet_dir=parquet_dir,
         log_dir=log_dir,
-        box_dir=box_dir,
         checkpoint_dir=checkpoint_dir,
     )

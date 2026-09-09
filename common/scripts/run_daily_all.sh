@@ -2,7 +2,9 @@
 # Daily P1 + P2 + P3 on comm-cme-p01. Edit the SETTINGS block, then run.
 #   bash common/scripts/run_daily_all.sh
 # Or one line:
-#   DATE=2026-08-28 OCR=1 EMOJI=1 WHISPER=0 P1=1 P2=1 P3=1 P3_SAMPLE=1 bash common/scripts/run_daily_all.sh
+#   DATE=2026-08-28 P1=1 P2=1 P3=1 P3_SAMPLE=1 bash common/scripts/run_daily_all.sh
+#
+# P1/P2 daily: OCR + emoji, skip Whisper. P3 Whisper stays off until decided.
 #
 # P1/P2/P3 use separate TikTok apps (separate 1,000-request daily quotas).
 # P3_SAMPLE=1 is the safe default (5 keywords). P3_SAMPLE=0 is the full 263-term
@@ -23,9 +25,9 @@ P1_SAMPLE="${P1_SAMPLE:-0}"  # 1 = two handles only
 P2_SAMPLE="${P2_SAMPLE:-0}"  # 1 = two handles only
 P3_SAMPLE="${P3_SAMPLE:-1}"  # 1 = news,trump,tsa,ice,netanyahu (keep this 1)
 
-OCR="${OCR:-1}"              # 1 = Google Vision OCR
-EMOJI="${EMOJI:-1}"          # 1 = emoji extract
-WHISPER="${WHISPER:-0}"      # 1 = Whisper transcripts (slow / OpenAI credits)
+OCR="${OCR:-1}"              # used by P3; P1/P2 always run OCR
+EMOJI="${EMOJI:-1}"          # used by P3; P1/P2 always run emoji
+WHISPER_P3="${WHISPER_P3:-${WHISPER:-0}}"  # P3 Whisper — off until decided
 
 SKIP_BQ="${SKIP_BQ:-0}"      # 1 = enrich SQLite only, do not upsert BigQuery
 SKIP_COLLECT="${SKIP_COLLECT:-0}"  # 1 = enrich already-collected rows for DATE
@@ -46,7 +48,7 @@ if [[ "${_DAILY_INNER:-}" != "1" && "${BACKGROUND}" == "1" ]]; then
   LOG="${WRAP_LOG_DIR}/run_daily_all_${DATE}_${STAMP}.log"
   export _DAILY_INNER=1
   export DATE UTC_DAY P1 P2 P3 P1_SAMPLE P2_SAMPLE P3_SAMPLE
-  export OCR EMOJI WHISPER SKIP_BQ SKIP_COLLECT BACKGROUND ROOT
+  export OCR EMOJI WHISPER_P3 SKIP_BQ SKIP_COLLECT BACKGROUND ROOT
   nohup bash "$0" "$@" > "$LOG" 2>&1 &
   echo "started pid=$!  log=$ROOT/$LOG"
   echo "tail: tail -f $ROOT/$LOG"
@@ -65,11 +67,24 @@ mkdir -p p1_content_creators/logs p2_news/logs p3_keywords/logs
 
 flag_on() { [[ "${1:-0}" == "1" ]]; }
 
-STEPS=""
-flag_on "$WHISPER" && STEPS="${STEPS},transcript"
-flag_on "$OCR" && STEPS="${STEPS},ocr"
-flag_on "$EMOJI" && STEPS="${STEPS},emoji"
-STEPS="${STEPS#,}"
+enrich_steps() {
+  local name="$1"
+  case "$name" in
+    P1)
+      echo "ocr,emoji"
+      ;;
+    P2)
+      echo "ocr,emoji"
+      ;;
+    P3)
+      local steps=""
+      flag_on "$OCR" && steps="${steps},ocr"
+      flag_on "$EMOJI" && steps="${steps},emoji"
+      flag_on "$WHISPER_P3" && steps="${steps},transcript"
+      echo "${steps#,}"
+      ;;
+  esac
+}
 
 has_flag() {
   local script="$1" needle="$2"
@@ -122,6 +137,8 @@ run_pipeline() {
   local name="$1" script="$2" pipeline_id="$3" export_prefix="$4"
   shift 4
   local extra=("$@")
+  local STEPS
+  STEPS=$(enrich_steps "$name")
 
   echo "======== $name collect $DATE ========"
   local before rc=0
@@ -134,7 +151,7 @@ run_pipeline() {
   fi
 
   if [[ -z "$STEPS" ]]; then
-    echo "$name: enrichment skipped (OCR=0 EMOJI=0 WHISPER=0)"
+    echo "$name: enrichment skipped (no OCR/emoji/Whisper steps)"
     return 0
   fi
 
@@ -166,8 +183,8 @@ run_pipeline() {
 }
 
 echo "DATE=$DATE UTC_DAY=$UTC_DAY P1=$P1 P2=$P2 P3=$P3"
-echo "P3_SAMPLE=$P3_SAMPLE OCR=$OCR EMOJI=$EMOJI WHISPER=$WHISPER SKIP_BQ=$SKIP_BQ"
-echo "steps=${STEPS:-none}"
+echo "P3_SAMPLE=$P3_SAMPLE OCR=$OCR EMOJI=$EMOJI WHISPER_P3=$WHISPER_P3 SKIP_BQ=$SKIP_BQ"
+echo "P1_steps=$(enrich_steps P1) P2_steps=$(enrich_steps P2) P3_steps=$(enrich_steps P3)"
 
 if flag_on "$P3" && ! flag_on "$P3_SAMPLE"; then
   echo "WARN: P3_SAMPLE=0 runs the full 263-keyword list and can exhaust KEYWORD_SEARCH quota."

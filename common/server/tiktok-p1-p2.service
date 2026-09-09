@@ -1,0 +1,14 @@
+[Unit]
+Description=TikTok research P1 then P2 daily job
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/tiktok_research
+# Keep the existing server .env; this unit does not inject secrets.
+ExecStart=%h/tiktok_research/common/scripts/run_daily_p1_p2.sh
+Nice=10
+
+[Install]
+WantedBy=default.target

@@ -262,12 +262,7 @@ def main() -> int:
     parser.add_argument(
         "--collection-date",
         default="",
-        help="Research/collection date YYYY-MM-DD for Box CSV name after BQ sync",
-    )
-    parser.add_argument(
-        "--skip-box",
-        action="store_true",
-        help="Do not upload the collection-date CSV to UT Box after BigQuery sync",
+        help="Research/collection date YYYY-MM-DD for dated CSV after BQ sync",
     )
     parser.add_argument(
         "--export-research",
@@ -448,29 +443,38 @@ def main() -> int:
                     bq_fail += 1
                     logger.error("BQ sync failed for %s: %s", vid, e)
 
-            if (
-                pipeline_id in ("content_creators", "news", "keyword")
-                and not args.skip_box
-                and bq_ok > 0
-            ):
-                from tiktok.box_delivery import (
+            if pipeline_id in ("content_creators", "news", "keyword") and bq_ok > 0:
+                from tiktok.collection_csv import (
+                    export_bq_collection_csv,
                     infer_collection_date,
-                    maybe_deliver_after_bq,
                 )
+                from tiktok.pipelines import get_pipeline
 
                 collection_date = (args.collection_date or "").strip()
                 if not collection_date:
                     collection_date = infer_collection_date(conn, video_ids)
-                box_result = maybe_deliver_after_bq(
-                    pipeline_id=pipeline_id,
-                    collection_date=collection_date,
-                    box_cfg=getattr(cfg, "box", None) or {},
-                )
-                logger.info("Box CSV delivery: %s", box_result)
-                print(
-                    f"Box CSV delivery: {json.dumps(box_result, default=str)}",
-                    flush=True,
-                )
+                if collection_date:
+                    pipeline = get_pipeline(cfg, pipeline_id)
+                    dated_csv = os.path.join(
+                        pipeline.resolved_export_dir(cfg),
+                        f"{collection_date}.csv",
+                    )
+                    try:
+                        rows = export_bq_collection_csv(
+                            pipeline_id, collection_date, dated_csv
+                        )
+                        logger.info(
+                            "Dated CSV: %s rows=%s",
+                            dated_csv,
+                            rows,
+                        )
+                        print(
+                            f"Dated CSV: {dated_csv} rows={rows}",
+                            flush=True,
+                        )
+                    except Exception as e:
+                        logger.error("Dated CSV export failed: %s", e)
+                        print(f"Dated CSV export failed: {e}", flush=True)
 
     validation_report = None
     validation_failed = False

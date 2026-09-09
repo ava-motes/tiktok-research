@@ -81,7 +81,7 @@ def main() -> int:
     parser.add_argument(
         "--skip-whisper",
         action="store_true",
-        help="Enrich with OCR and emoji only (skip Whisper transcription)",
+        help="Daily default: OCR and emoji only. Whisper can be backfilled later.",
     )
     parser.add_argument(
         "--continue-on-failures",
@@ -336,16 +336,38 @@ def main() -> int:
     print(json.dumps(full_summary, indent=2), flush=True)
     print(f"Wrote {summary_path}", flush=True)
 
+    # API handle failures are valid completed-run stubs (in BQ + final CSV).
+    # Block GCS only on incomplete/broken runs: stop_reason, enrich/BQ fail,
+    # validation fail, or dated CSV export/validation fail.
     if totals["stop_reason"]:
-        return 1
-    if int(totals.get("api_failures") or 0) != 0:
         return 1
     if enrich_rc not in (0, None):
         return enrich_rc
     if val_rc != 0:
         return val_rc
 
+    from tiktok.collection_csv import write_dated_collection_csv
     from tiktok.gcs_archive import upload_run_csv_after_success
+
+    api_fail_n = int(totals.get("api_failures") or 0)
+    try:
+        csv_summary = write_dated_collection_csv(
+            pipeline_id=PIPELINE_CONTENT_CREATORS,
+            collection_date=args.date,
+            export_dir=export_dir,
+            min_api_failed_rows=api_fail_n,
+        )
+    except Exception as e:
+        print(f"Final dated CSV failed: {e}", flush=True)
+        return 2
+    dated_csv = csv_summary["path"]
+    totals["csv_paths"] = list(totals.get("csv_paths") or []) + [dated_csv]
+    print(
+        "Final dated CSV: "
+        f"rows={csv_summary['rows']} videos={csv_summary['video_rows']} "
+        f"api_failed={csv_summary['api_failed_rows']} → {dated_csv}",
+        flush=True,
+    )
 
     return upload_run_csv_after_success(
         run_fn=_run,
@@ -353,7 +375,7 @@ def main() -> int:
         research_date=args.date,
         cfg=cfg,
         pipeline=pipeline,
-        csv_paths=totals.get("csv_paths") or [],
+        csv_paths=[dated_csv],
         skip=args.skip_gcs,
     )
 

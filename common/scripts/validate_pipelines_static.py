@@ -1148,8 +1148,120 @@ def _run_checks() -> None:
             _fail("23. GCS archive", f"{rel} duplicated GCS upload code")
         if token not in src:
             _fail("23. GCS archive", f"{rel} missing {token}")
+    # P1/P2: API handle failures must not block GCS; final dated CSV required.
+    for rel in (
+        "p1_content_creators/scripts/run_content_creators.py",
+        "p2_news/scripts/run_news.py",
+    ):
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        if 'if int(totals.get("api_failures") or 0) != 0:' in src:
+            _fail(
+                "23. GCS archive",
+                f"{rel} still treats api_failures as a hard GCS blocker",
+            )
+        if "write_dated_collection_csv" not in src:
+            _fail("23. GCS archive", f"{rel} missing final dated CSV export")
+        if "min_api_failed_rows" not in src:
+            _fail("23. GCS archive", f"{rel} does not require failed-handle CSV rows")
+    p1_val = (ROOT / "p1_content_creators/scripts/validate_content_creators.py").read_text(
+        encoding="utf-8"
+    )
+    if (
+        'if int(collect.get("api_failures") or 0) == 0\n        and args.enrich_exit'
+        in p1_val
+    ):
+        _fail(
+            "23. GCS archive",
+            "P1 validator still fails overall_status on api_failures",
+        )
+    p2_val = (ROOT / "p2_news/scripts/validate_news.py").read_text(encoding="utf-8")
+    if 'if int(collect.get("api_failures") or 0) != 0:\n        overall = "failed"' in p2_val:
+        _fail("23. GCS archive", "P2 validator still fails overall_status on api_failures")
+    csv_mod = (ROOT / "common/tiktok/collection_csv.py").read_text(encoding="utf-8")
+    for token in (
+        "write_dated_collection_csv",
+        "validate_collection_csv_for_upload",
+        "api_failed",
+        "handle_fail:",
+    ):
+        if token not in csv_mod:
+            _fail("23. GCS archive", f"collection_csv missing {token}")
     print("PASS 23. GCS archive shared, date-named, success-only")
 
+    # 24. P1/P2 daily skip Whisper; OCR+emoji; P3 unchanged
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    p1_cmd = (
+        "python p1_content_creators/scripts/run_content_creators.py "
+        '--date "$DATE" --utc-day --skip-whisper --continue-on-failures '
+        "--skip-user-info"
+    )
+    p2_cmd = (
+        'python p2_news/scripts/run_news.py --date "$DATE" --utc-day '
+        "--skip-whisper"
+    )
+    if p1_cmd not in readme:
+        _fail("24. P1/P2 daily enrich", "README P1 daily command drifted")
+    if p2_cmd not in readme:
+        _fail("24. P1/P2 daily enrich", "README P2 daily command drifted")
+    daily = (ROOT / "common/scripts/run_daily_all.sh").read_text(encoding="utf-8")
+    if 'echo "ocr,emoji"' not in daily:
+        _fail("24. P1/P2 daily enrich", "run_daily_all.sh P1/P2 steps are not ocr,emoji")
+    print("PASS 24. P1/P2 daily OCR+emoji, skip Whisper")
+
+    # 25. P1→P2 automation: sequential, no P3, lagged date, no schedule time
+    from tiktok.collection.date_window import lagged_research_date, today_research_date
+    from tiktok.p1_p2_daily import (
+        assert_safe_argv,
+        p1_argv,
+        p2_argv,
+        resolve_research_date,
+    )
+
+    if lagged_research_date(0) != today_research_date():
+        _fail("25. P1/P2 automation", "lag 0 should equal today")
+    if lagged_research_date(2) >= today_research_date():
+        _fail("25. P1/P2 automation", "lag 2 should be before today")
+    if resolve_research_date("2026-08-01") != "2026-08-01":
+        _fail("25. P1/P2 automation", "explicit DATE not honored")
+    a1 = p1_argv("2026-08-01")
+    a2 = p2_argv("2026-08-01")
+    assert_safe_argv(a1)
+    assert_safe_argv(a2)
+    if "--reset-checkpoints" in a1 or "--reset-checkpoints" in a2:
+        _fail("25. P1/P2 automation", "automation resets checkpoints")
+    if "--sample" in a1 or "--sample" in a2:
+        _fail("25. P1/P2 automation", "automation uses --sample")
+    if "--skip-box" in a1 or "--skip-box" in a2:
+        _fail("25. P1/P2 automation", "Box flags should be removed")
+    orch = (ROOT / "common/scripts/run_daily_p1_p2.py").read_text(encoding="utf-8")
+    wrap = (ROOT / "common/scripts/run_daily_p1_p2.sh").read_text(encoding="utf-8")
+    if "run_keyword.py" in orch or "run_keyword.py" in wrap:
+        _fail("25. P1/P2 automation", "wrapper automates P3")
+    if "P1 exited" not in orch or "P2 not started" not in orch:
+        _fail("25. P1/P2 automation", "P2 is not skipped when P1 fails")
+    if "require_collection_server" not in orch:
+        _fail("25. P1/P2 automation", "python job missing host guard")
+    if 'cme-p01' not in wrap:
+        _fail("25. P1/P2 automation", "shell wrapper missing host guard")
+    timer = (ROOT / "common/server/tiktok-p1-p2.timer").read_text(encoding="utf-8")
+    if any(ln.strip().startswith("OnCalendar=") for ln in timer.splitlines()):
+        _fail("25. P1/P2 automation", "timer already has OnCalendar")
+    installer = (ROOT / "common/server/install_p1_p2_schedule.sh").read_text(
+        encoding="utf-8"
+    )
+    if "--enable" not in installer or "ON_CALENDAR" not in installer:
+        _fail("25. P1/P2 automation", "installer cannot be enabled later")
+    enrich_src = (ROOT / "common/scripts/enrich_pipeline.py").read_text(encoding="utf-8")
+    if "Dated CSV" not in enrich_src or "box_delivery" in enrich_src or "skip-box" in enrich_src:
+        _fail("25. P1/P2 automation", "enrich_pipeline still references Box delivery")
+    for rel in (
+        "p1_content_creators/scripts/run_content_creators.py",
+        "p2_news/scripts/run_news.py",
+    ):
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        if "skip-box" in src or "skip_box" in src:
+            _fail("25. P1/P2 automation", f"{rel} still has Box skip flag")
+    print("PASS 25. P1→P2 automation sequential, no P3, no schedule time")
 
 if __name__ == "__main__":
     try:

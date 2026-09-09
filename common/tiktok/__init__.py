@@ -1,4 +1,4 @@
-"""Shared TikTok research package (auth, db, collection, Box).
+"""Shared TikTok research package (auth, db, collection).
 
 API client: ``common/api`` (import as ``api`` or ``tiktok.api``).
 Enrichment: ``common/enrichment`` (import as ``enrichment`` or ``tiktok.enrichment``).

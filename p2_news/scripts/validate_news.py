@@ -192,9 +192,8 @@ def main() -> int:
     avg_ocr = round(sum(ocr_scores) / len(ocr_scores), 2) if ocr_scores else None
     ended = datetime.now(timezone.utc).isoformat()
     duplicate_ids = dups.get("duplicates") or []
+    # Handle API failures are expected stubs in BQ/CSV; they do not fail the run.
     overall = "ok"
-    if int(collect.get("api_failures") or 0) != 0:
-        overall = "failed"
     if args.enrich_exit not in ("", "0"):
         overall = "failed"
     if leaked_to_v5 not in (None, 0):

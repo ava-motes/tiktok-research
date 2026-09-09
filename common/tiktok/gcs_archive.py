@@ -92,12 +92,12 @@ def resolve_run_csv_file(
     research_date: str,
     csv_paths: Optional[Sequence[str]] = None,
 ) -> str:
-    """Prefer the date-named Box/local CSV, then collection export CSVs."""
+    """Prefer the date-named local CSV, then collection export CSVs."""
     date = validate_research_date(research_date)
     candidates: List[str] = []
-    box_dir = pipeline.resolved_box_dir(cfg) if pipeline is not None else ""
-    if box_dir:
-        candidates.append(os.path.join(box_dir, f"{date}.csv"))
+    export_dir = pipeline.resolved_export_dir(cfg) if pipeline is not None else ""
+    if export_dir:
+        candidates.append(os.path.join(export_dir, f"{date}.csv"))
     for p in csv_paths or []:
         if p:
             candidates.append(p)
@@ -243,7 +243,11 @@ def upload_run_csv_after_success(
     csv_paths: Iterable[str],
     skip: bool,
 ) -> int:
-    """Call only after collect + enrich + validate already succeeded."""
+    """Call only after collect + enrich + validate already succeeded.
+
+    For P1/P2, handle API failures are allowed; callers must still pass a
+    validated dated CSV that includes any ``api_failed`` stubs.
+    """
     if skip:
         print("Skipping GCS archive (--skip-gcs)", flush=True)
         return 0

@@ -182,10 +182,8 @@ def main() -> int:
         "bigquery_table": CONTENT_CREATORS_TABLE,
         "bigquery_rows_for_run": bq.get("rows"),
         "bigquery_error": bq.get("error"),
-        "overall_status": "ok"
-        if int(collect.get("api_failures") or 0) == 0
-        and args.enrich_exit in ("", "0")
-        else "failed",
+        # Handle API failures are expected stubs in BQ/CSV; they do not fail the run.
+        "overall_status": "ok" if args.enrich_exit in ("", "0") else "failed",
         "quota_usage": "not_exposed_by_research_api",
     }
     print(json.dumps(summary, indent=2), flush=True)

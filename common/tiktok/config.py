@@ -34,7 +34,6 @@ class Config:
     collection_pipelines: dict = field(default_factory=dict)
     research_timezone: str = "America/Chicago"
     enrichment: dict = field(default_factory=dict)
-    box: dict = field(default_factory=dict)
     config_dir: str = "."
 
     def get_handles(self, group: str) -> List[str]:
@@ -122,6 +121,5 @@ def load_config(config_path: str = "common/config.yaml") -> Config:
             or "America/Chicago"
         ),
         enrichment=raw.get("enrichment") or {},
-        box=raw.get("box") or {},
         config_dir=str(repo_root()),
     )

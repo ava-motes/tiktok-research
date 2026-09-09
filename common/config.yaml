@@ -33,7 +33,6 @@ collection_pipelines:
     summary_dir: p1_content_creators/results/summaries
     parquet_dir: p1_content_creators/results/parquet
     log_dir: p1_content_creators/logs
-    box_dir: p1_content_creators/box
     checkpoint_dir: p1_content_creators/logs/checkpoints
     api_source: CONTENT_CREATOR_API
     bigquery_table: content_creators
@@ -50,7 +49,6 @@ collection_pipelines:
     summary_dir: p2_news/results/summaries
     parquet_dir: p2_news/results/parquet
     log_dir: p2_news/logs
-    box_dir: p2_news/box
     checkpoint_dir: p2_news/logs/checkpoints
     api_source: NEWS_API
     bigquery_table: news
@@ -77,7 +75,6 @@ collection_pipelines:
     summary_dir: p3_keywords/results/summaries
     parquet_dir: p3_keywords/results/parquet
     log_dir: p3_keywords/logs
-    box_dir: p3_keywords/box
     checkpoint_dir: p3_keywords/logs/checkpoints
     api_source: KEYWORD_SEARCH_API
     bigquery_table: keyword
@@ -109,21 +106,6 @@ enrichment:
   bigquery_dataset: tiktok_research
   sync_bigquery: false
   vision_enabled: true
-box:
-  shared_link: https://utexas.box.com/s/drgh994ljt4q9c8asvizbg9mmkosif41
-  parent_folder_id: "414371063670"
-  pipeline_folders:
-    content_creators: p1_content_creators
-    news: p2_news
-    keyword: p3_key_words
-  pipeline_folder_ids:
-    content_creators: "414374871766"
-    news: "414374596800"
-    keyword: "414375644549"
-  pipeline_local_dirs:
-    content_creators: p1_content_creators/box
-    news: p2_news/box
-    keyword: p3_keywords/box
 gcs:
   run_archive_bucket: tiktok_research_3
   # Objects: gs://tiktok_research_3/{p1_content_creators|p2_news|p3_keywords}/YYYY-MM-DD.csv

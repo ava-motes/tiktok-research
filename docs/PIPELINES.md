@@ -12,7 +12,7 @@ Keep the existing server `.env` after a git pull. Do not copy it into the repo o
 | Input | 526 handles | 137 handles | 263 keywords (daily = 5-term sample) |
 | BigQuery | `content_creators` | `news` | `keyword` |
 | Daily | `run_content_creators.py` | `run_news.py` | `run_keyword.py --sample` |
-| Box folder | `p1_content_creators` | `p2_news` | `p3_key_words` |
+| Local CSV | `p1_content_creators/results/csv/` | `p2_news/results/csv/` | `p3_keywords/results/csv/` |
 | GCS archive | `gs://tiktok_research_3/p1_content_creators/YYYY-MM-DD.csv` | `gs://tiktok_research_3/p2_news/YYYY-MM-DD.csv` | `gs://tiktok_research_3/p3_keywords/YYYY-MM-DD.csv` |
 
 ## Canonical daily commands
@@ -32,11 +32,15 @@ python p3_keywords/scripts/run_keyword.py \
   --date "$DATE" --sample --utc-day --skip-whisper
 ```
 
-Sequential wrapper with the same defaults (`UTC_DAY=1`, `WHISPER=0`, `P3_SAMPLE=1`):
+P1 and P2 daily: OCR + emoji, skip Whisper. GCS after a completed run (API handle failures allowed; enrich/BQ/CSV validation must succeed).
+**Scheduled entrypoint (P1 then P2, no P3, no clock time yet):** `bash common/scripts/run_daily_p1_p2.sh`
 
 ```bash
-bash common/scripts/run_daily_all.sh
+bash common/scripts/run_daily_p1_p2.sh --preflight
+bash common/scripts/run_daily_p1_p2.sh
 ```
+
+If `DATE` is unset, the job uses America/Chicago today minus `RESEARCH_LAG_DAYS` (default 2). P2 is not started if P1 fails. `--reset-checkpoints` is never passed. To attach a clock time later, only update the timer/crontab via `common/server/install_p1_p2_schedule.sh` — do not change runner flags.
 
 Do not run three OCR jobs at once. Prefer P1, then P2, then P3.
 
@@ -58,7 +62,9 @@ P3 `--sample` is `news, trump, tsa, ice, netanyahu` — not the first five file 
 
 ## GCS run archive
 
-**Automatic:** each successful `run_*.py` (collect + enrich/BQ + validate, no stop reason / API failures) uploads that pipeline’s date CSV via `common/scripts/upload_run_csv.py`. Object name = runner `--date`. Same date overwrites. Opt out: `--skip-gcs`.
+**Automatic:** each completed `run_*.py` for P1/P2 (collect finished, enrich/BQ ok, dated CSV built and validated) uploads that pipeline’s date CSV via `common/scripts/upload_run_csv.py`. Object name = runner `--date`. Same date overwrites. Opt out: `--skip-gcs`. Handle API failures (`collection_status=api_failed`) are included in the dated CSV and do **not** block GCS. Incomplete runs (stop reason, enrich/BQ failure, CSV export/validation failure) are not archived. A dated CSV is written under each pipeline’s `results/csv/YYYY-MM-DD.csv` after BQ sync (and again as a final export before upload for P1/P2).
+
+P3 still archives only when that runner’s success gates pass (including zero API failures if that gate remains).
 
 **Manual** (backfill a date that already has a CSV):
 
@@ -66,7 +72,7 @@ P3 `--sample` is `news, trump, tsa, ice, netanyahu` — not the first five file 
 python common/scripts/upload_run_csv.py \
   --pipeline content_creators \
   --date YYYY-MM-DD \
-  --file p1_content_creators/box/YYYY-MM-DD.csv
+  --file p1_content_creators/results/csv/YYYY-MM-DD.csv
 ```
 
-Use `--pipeline news` or `keyword` and the matching `p2_news/box/` or `p3_keywords/box/` path (or another non-empty CSV for that run). Server needs the existing enrichment GCP credentials; see [`SERVER.md`](SERVER.md).
+Use `--pipeline news` or `keyword` and the matching `p2_news/results/csv/` or `p3_keywords/results/csv/` path (or another non-empty CSV for that run). Server needs the existing enrichment GCP credentials; see [`SERVER.md`](SERVER.md).

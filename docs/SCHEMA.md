@@ -16,8 +16,7 @@ If a column name here disagrees with a script, **this document plus
 | Raw JSONL | `data/raw/{videos,users}/` (server, gitignored) | Verbatim API responses |
 | SQLite | `data/tiktok_research.db` (server) | Collection + enrichment **staging** |
 | BigQuery | `cfme-mediaengagment-prod.tiktok_research` | **Analytics source of truth** |
-| P1/P2/P3 exports | `p1_content_creators/results/` · `p2_news/results/` · `p3_keywords/results/` | CSV / summaries |
-| Box copies | `p1_content_creators/box/` · `p2_news/box/` · `p3_keywords/box/` | Daily `YYYY-MM-DD.csv` |
+| P1/P2/P3 exports | `p1_content_creators/results/` · `p2_news/results/` · `p3_keywords/results/` | CSV / summaries / dated `YYYY-MM-DD.csv` |
 
 > The laptop copy of `data/tiktok_research.db` (if present) holds **collection
 > tables only**; enrichment staging tables exist on the server. Do not treat
@@ -34,7 +33,7 @@ flowchart TD
   videos --> p1
   videos --> p2
   videos --> p3
-  p1 --> out[pipeline_results_and_Box]
+  p1 --> out[pipeline_results_and_GCS]
   p2 --> out
   p3 --> out
 ```
@@ -53,7 +52,7 @@ use **only** the columns marked SoT below.
 | Emoji | BQ `emoji_characters` / `emoji_descriptions` / `emoji_category` | — |
 | Saves metric | BQ `favorite_count` | SQLite `save_count`, API `favorites_count` (same value, different names) |
 | Creator handle | BQ `creator_username` | SQLite `username`, export CSV `handle`, legacy `creator_handle` |
-| Research export | per-pipeline `results/` + Box CSV | archived `archive/v5/scripts/export_research_dataset.py` (`tiktok_video_enriched`) |
+| Research export | per-pipeline `results/` CSV | archived `archive/v5/scripts/export_research_dataset.py` (`tiktok_video_enriched`) |
 
 ---
 
@@ -206,7 +205,7 @@ handles use a synthetic `video_id` `handle_fail:{YYYY-MM-DD}:{handle}` so they
 can be upserted without a TikTok video. Video analyses should filter
 `collection_status = 'ok'` (or `STARTS_WITH(video_id, 'handle_fail:') = FALSE`).
 `api_error_code` stores the Research API error code on failure rows (blank on
-video rows). Daily Box CSVs and the P1/P2 copy-paste pulls in
+video rows). Dated CSVs and the P1/P2 copy-paste pulls in
 [`p1_content_creators/sql/content_creators.sql`](../p1_content_creators/sql/content_creators.sql) include both
 row types, with failure stubs listed first and status columns on the left.
 
@@ -295,12 +294,12 @@ Two export paths exist; they are intentionally different:
 
 | Export | Source | Columns |
 |--------|--------|---------|
-| P1/P2/P3 Box + `results/` CSV | Pipeline BigQuery table | Full table fields (status columns first) |
+| P1/P2/P3 `results/` CSV | Pipeline BigQuery table | Full table fields (status columns first) |
 | `archive/v5/scripts/export_research_dataset.py` | archived `tiktok_video_enriched` | Research subset |
 
 The archived exporter intentionally omits `comments_json` (empty until comments
-are collected) and ops latency/retry fields. Active pipelines export via Box
-delivery (`common/tiktok/box_delivery.py`) and copy-paste SQL in each pipeline
+are collected) and ops latency/retry fields. Active pipelines export via
+`common/tiktok/collection_csv.py` and copy-paste SQL in each pipeline
 `sql/` folder.
 
 ---

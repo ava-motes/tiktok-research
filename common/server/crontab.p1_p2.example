@@ -1,0 +1,8 @@
+# P1 → P2 daily job crontab PLACEHOLDER for comm-cme-p01.
+# Do not install this until a clock time is provided.
+# The job computes the lagged research date itself. Only the minute/hour
+# (and timezone of the crontab daemon) need to change later.
+#
+# SHELL=/bin/bash
+# PATH=/home/cme-user1/bin:/usr/bin:/bin
+# # mm hh * * *   /home/cme-user1/tiktok_research/common/scripts/run_daily_p1_p2.sh

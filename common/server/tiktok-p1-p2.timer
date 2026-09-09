@@ -1,0 +1,13 @@
+[Unit]
+Description=TikTok research P1 then P2 daily timer (DISABLED until a run time is set)
+
+[Timer]
+# Do not set a time here. When a run time is provided, add exactly one
+# OnCalendar= line (server local timezone) and enable this timer.
+# Example after you supply the time:
+#   OnCalendar=*-*-* HH:MM:00
+Persistent=true
+Unit=tiktok-p1-p2.service
+
+[Install]
+WantedBy=timers.target

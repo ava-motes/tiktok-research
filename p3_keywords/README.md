@@ -11,7 +11,7 @@ TikTok **client ID ending 993**. Dedicated keys: `KEYWORD_SEARCH_API_CLIENT_KEY`
 | Extra lists | `config/aug15_six_terms.txt`, `config/phrase_smoke_test.txt` |
 | Results | `results/csv/` · `results/parquet/` · `results/summaries/` |
 | Logs / checkpoints | `logs/` · `logs/checkpoints/` |
-| Local Box copies | `box/` (`YYYY-MM-DD.csv`) |
+| Dated CSV | `results/csv/YYYY-MM-DD.csv` |
 | GCS archive | `gs://tiktok_research_3/p3_keywords/YYYY-MM-DD.csv` |
 | Copy-paste SQL | `sql/keyword.sql` |
 
@@ -36,7 +36,7 @@ export PATH="$HOME/bin:$PATH"
 
 DATE=YYYY-MM-DD
 
-# Canonical daily: five-term sample, OCR + emoji, skip Whisper
+# Canonical daily: five-term sample, OCR + emoji; Whisper skipped until decided
 python p3_keywords/scripts/run_keyword.py \
   --date "$DATE" --sample --utc-day --skip-whisper
 
