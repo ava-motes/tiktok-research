@@ -1163,6 +1163,16 @@ def _run_checks() -> None:
             _fail("23. GCS archive", f"{rel} missing final dated CSV export")
         if "min_api_failed_rows" not in src:
             _fail("23. GCS archive", f"{rel} does not require failed-handle CSV rows")
+        if "min_api_failed_rows=api_fail_n" in src:
+            _fail(
+                "23. GCS archive",
+                f"{rel} still keys CSV fail-row checks on retry attempt counts",
+            )
+        if "unique_failed_handle_count" not in src:
+            _fail(
+                "23. GCS archive",
+                f"{rel} does not count unique failed handles for CSV validation",
+            )
     p1_val = (ROOT / "p1_content_creators/scripts/validate_content_creators.py").read_text(
         encoding="utf-8"
     )
@@ -1213,6 +1223,7 @@ def _run_checks() -> None:
     from tiktok.p1_p2_daily import (
         assert_safe_argv,
         p1_argv,
+        p1_ok_to_start_p2,
         p2_argv,
         resolve_research_date,
     )
@@ -1239,6 +1250,19 @@ def _run_checks() -> None:
         _fail("25. P1/P2 automation", "wrapper automates P3")
     if "P1 exited" not in orch or "P2 not started" not in orch:
         _fail("25. P1/P2 automation", "P2 is not skipped when P1 fails")
+    if "p1_ok_to_start_p2" not in orch:
+        _fail("25. P1/P2 automation", "P2 gate does not use P1 process exit code")
+    if "enrich_pipeline_exit" in orch or "enrich_pipeline_exit" in wrap:
+        _fail(
+            "25. P1/P2 automation",
+            "P1→P2 waiter must not grep enrich_pipeline_exit "
+            "(that field name appears in successful JSON)",
+        )
+
+    if not p1_ok_to_start_p2(0):
+        _fail("25. P1/P2 automation", "exit 0 should start P2")
+    if p1_ok_to_start_p2(2) or p1_ok_to_start_p2(None) or p1_ok_to_start_p2("unknown"):
+        _fail("25. P1/P2 automation", "non-zero/unknown P1 exit must not start P2")
     if "require_collection_server" not in orch:
         _fail("25. P1/P2 automation", "python job missing host guard")
     if 'cme-p01' not in wrap:

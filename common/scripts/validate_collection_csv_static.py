@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib.util
+import tempfile
 
 
 def _setup_repo():
@@ -21,6 +22,7 @@ def _setup_repo():
 ROOT = _setup_repo()
 
 from enrichment.bigquery_loader import BQ_SCHEMAS, CONTENT_CREATORS_TABLE
+from tiktok.checkpoint import CheckpointStore, unique_failed_handle_count
 from tiktok.collection_csv import collection_export_sql, csv_export_fields
 
 
@@ -55,6 +57,19 @@ def main() -> int:
         print("FAIL export SQL should sort api_failed rows first")
         return 1
     print("PASS collection CSV includes handle API failures")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(Path(tmp) / "ckpt.json")
+        ckpt = CheckpointStore(path)
+        ckpt.mark_failed("auntiekilljoy", "20260906", "20260906")
+        ckpt.mark_failed("unclejohn327", "20260906", "20260906")
+        # A retry re-marks the same handle; unique count must stay 2, not 4.
+        ckpt.mark_failed("auntiekilljoy", "20260906", "20260906")
+        n = unique_failed_handle_count(path)
+        if n != 2:
+            print(f"FAIL unique failed handles counted retries: {n}")
+            return 1
+    print("PASS unique failed-handle count ignores retries")
     return 0
 
 

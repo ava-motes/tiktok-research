@@ -110,6 +110,7 @@ def main() -> int:
 
     require_collection_server()
 
+    from tiktok.checkpoint import unique_failed_handle_count
     from tiktok.collection.daily_handle_pipeline import run_handle_pipeline
     from tiktok.config import load_config
     from tiktok.logging_setup import setup_logging
@@ -330,6 +331,9 @@ def main() -> int:
         "batch_size": batch_size,
         "research_date": args.date,
         "validate_exit": val_rc,
+        "unique_api_failed_handles": unique_failed_handle_count(
+            last_collect.get("checkpoint_path") or ""
+        ),
     }
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(full_summary, f, indent=2, ensure_ascii=False)
@@ -349,13 +353,14 @@ def main() -> int:
     from tiktok.collection_csv import write_dated_collection_csv
     from tiktok.gcs_archive import upload_run_csv_after_success
 
-    api_fail_n = int(totals.get("api_failures") or 0)
+    # Unique failed handles after retries, not summed attempt counts.
+    unique_failed_n = int(full_summary.get("unique_api_failed_handles") or 0)
     try:
         csv_summary = write_dated_collection_csv(
             pipeline_id=PIPELINE_CONTENT_CREATORS,
             collection_date=args.date,
             export_dir=export_dir,
-            min_api_failed_rows=api_fail_n,
+            min_api_failed_rows=unique_failed_n,
         )
     except Exception as e:
         print(f"Final dated CSV failed: {e}", flush=True)
