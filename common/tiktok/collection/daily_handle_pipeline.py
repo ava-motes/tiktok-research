@@ -540,6 +540,7 @@ def collect_handles(
         "upserted_existing": upserted_existing,
         "duplicate_skips": duplicate_skips,
         "api_failures": api_failures,
+        "unique_api_failed_handles": len(ckpt.unique_failed_handles()),
         "user_info_ok": user_ok,
         "user_info_failed": user_fail,
         "db_before": before,

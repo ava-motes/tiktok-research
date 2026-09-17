@@ -76,6 +76,15 @@ class CheckpointStore:
     def is_failed(self, handle: str, chunk_start: str = "", chunk_end: str = "") -> bool:
         return self.make_key(handle, chunk_start, chunk_end) in self._failed
 
+    def unique_failed_handles(self) -> Set[str]:
+        """Handle names still marked failed. Retries do not duplicate a handle."""
+        handles: Set[str] = set()
+        for key in self._failed:
+            handle = str(key).split("|", 1)[0].strip()
+            if handle:
+                handles.add(handle)
+        return handles
+
     def is_partial(self, handle: str, chunk_start: str = "", chunk_end: str = "") -> bool:
         return self.make_key(handle, chunk_start, chunk_end) in self._partial
 
@@ -145,3 +154,10 @@ class CheckpointStore:
         self._partial.clear()
         self._save()
         logger.info(f"Checkpoints cleared: {self.filepath}")
+
+
+def unique_failed_handle_count(filepath: str) -> int:
+    """Unique failed handles in a checkpoint file (not retry-attempt count)."""
+    if not filepath or not os.path.isfile(filepath):
+        return 0
+    return len(CheckpointStore(filepath).unique_failed_handles())

@@ -51,6 +51,7 @@ from tiktok.p1_p2_daily import (
     assert_safe_argv,
     gcs_uri,
     p1_argv,
+    p1_ok_to_start_p2,
     p2_argv,
     resolve_lag_days,
     resolve_research_date,
@@ -277,7 +278,7 @@ def main() -> int:
             "attempted_on_success" if p1_rc == 0 else "skipped_pipeline_failed"
         )
 
-        if p1_rc != 0:
+        if not p1_ok_to_start_p2(p1_rc):
             p2_skipped = f"P1 exited {p1_rc}; P2 not started"
             overall = p1_rc or 1
             _tee_write(

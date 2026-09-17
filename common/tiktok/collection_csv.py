@@ -174,7 +174,10 @@ def validate_collection_csv_for_upload(
     collection_date: str,
     min_api_failed_rows: int = 0,
 ) -> Dict[str, Any]:
-    """Validate dated CSV before GCS upload; never silently drop known failures."""
+    """Validate dated CSV before GCS upload; never silently drop known failures.
+
+    ``min_api_failed_rows`` is unique failed handles, not query retry attempts.
+    """
     summary = summarize_collection_csv(path)
     day = (collection_date or "").strip()
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -193,13 +196,13 @@ def validate_collection_csv_for_upload(
     if min_api_failed_rows > 0:
         if summary["rows"] <= 0:
             raise ValueError(
-                f"CSV has no data rows but {min_api_failed_rows} API failures "
-                f"were recorded: {path}"
+                f"CSV has no data rows but {min_api_failed_rows} unique failed "
+                f"handles were recorded: {path}"
             )
         if summary["api_failed_rows"] < min_api_failed_rows:
             raise ValueError(
                 f"CSV omitted failed handles: expected >= {min_api_failed_rows} "
-                f"api_failed rows, found {summary['api_failed_rows']}: {path}"
+                f"unique api_failed rows, found {summary['api_failed_rows']}: {path}"
             )
     return summary
 

@@ -11,7 +11,7 @@ GCS upload is left to each runner after a completed run
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from tiktok.collection.date_window import (
     DEFAULT_RESEARCH_TIMEZONE,
@@ -95,6 +95,21 @@ def gcs_uri(pipeline: str, research_date: str) -> str:
     if pipeline == P2_PIPELINE:
         return f"{P2_GCS_PREFIX}/{date}.csv"
     raise ValueError(f"automation does not include pipeline {pipeline!r}")
+
+
+def p1_ok_to_start_p2(exit_code: Optional[Union[int, str]]) -> bool:
+    """True only when the P1 runner process itself succeeded.
+
+    The runner returns 0 after collect, enrich, BigQuery, dated CSV
+    validation, and GCS. Do not grep logs for ``enrich_pipeline_exit``:
+    successful validation JSON includes that field name with value ``0``.
+    """
+    if exit_code is None:
+        return False
+    try:
+        return int(exit_code) == 0
+    except (TypeError, ValueError):
+        return False
 
 
 def assert_safe_argv(argv: List[str]) -> None:
